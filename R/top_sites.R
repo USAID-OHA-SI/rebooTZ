@@ -15,10 +15,10 @@ library(ICPIutilities)
 
 #GENIE PULL 
 #  - Indicators: HTS_TST, TX_NEW (All disaggs)
-#  - Date: 2019-02-14
+#  - Date: 2019-02-15
 
 #site data
-df_genie_site <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-2019-02-14 HTS_TX.zip",
+df_genie_site_num <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-2019-02-15 Total Num.zip",
                            save_rds = FALSE)
 
 
@@ -43,8 +43,10 @@ df_genie_site <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-20
 
 # MUNGE -------------------------------------------------------------------
 
-  sites_hts <- top_sites(df_genie_site, "HTS_TST", "fy2019_targets")
+  sites_hts <- top_sites(df_genie_site_num, "HTS_TST_POS", "fy2019_targets")
   
   save(sites_hts, file = "data/sites_hts.rda")
   
-  rm(sites_hts)
+  rm(top_sites, sites_hts)
+
+  
