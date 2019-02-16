@@ -4,27 +4,6 @@
 ##  DATE:     2019-02-14
 ##  UPDATED:  
 
-# DEPENDENCIES ------------------------------------------------------------
-
-  library(tidyverse) 
-  library(scales)
-  library(extrafont)
-  library(ICPIutilities)
-  
-  #import theme
-  source("R/plot_theme.R")
-
-
-# IMPORT ------------------------------------------------------------------
-
-  #GENIE PULL 
-  #  - Indicators: HTS_TST, TX_NEW (All disaggs)
-  #  - Date: 2019-02-14
-  
-  #site data
-    df_genie_site <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-2019-02-15.zip",
-                               save_rds = FALSE)
-    
 
 # MUNGE -------------------------------------------------------------------
 
@@ -187,7 +166,8 @@
       plot_theme() +
       labs(x = "", y = "share of modality male") +
       theme(panel.grid = element_blank(),
-            axis.text.x = element_blank())
+            axis.text.x = element_blank(),
+            axis.text.y = element_text(size = 14))
 
     ggsave("TZA_male_mod.png", 
            path = "Output",

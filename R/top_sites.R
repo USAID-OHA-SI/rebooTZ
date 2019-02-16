@@ -5,30 +5,14 @@
 ##  UPDATED:  
 
 
-# DEPENDENCIES ------------------------------------------------------------
-
-library(tidyverse) 
-library(ICPIutilities)
-
-
-# IMPORT ------------------------------------------------------------------
-
-#GENIE PULL 
-#  - Indicators: HTS_TST, TX_NEW (All disaggs)
-#  - Date: 2019-02-15
-
-#site data
-df_genie_site_num <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-2019-02-15 Total Num.zip",
-                           save_rds = FALSE)
-
-
 # FUNCTION ----------------------------------------------------------------
 
 
   top_sites <- function(df, ind, wt_pd){
     df %>% 
       dplyr::filter(indicator %in% ind,
-             fundingagency == "USAID") %>% 
+             fundingagency == "USAID",
+             standardizeddisaggregate == "Total Numerator") %>% 
       dplyr::group_by(orgunituid, sitename, fundingagency,indicator) %>% 
       dplyr::summarise_at(dplyr::vars(!!wt_pd), sum, na.rm = TRUE) %>% 
       dplyr::ungroup() %>%
@@ -47,6 +31,10 @@ df_genie_site_num <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIM
   
   save(sites_hts, file = "data/sites_hts.rda")
   
-  rm(top_sites, sites_hts)
+  sites_tx <- top_sites(df_genie_site, "TX_CURR", "fy2019_targets")
+  
+  save(sites_tx, file = "data/sites_tx.rda")
+  
+  rm(top_sites, sites_hts, sites_tx)
 
   

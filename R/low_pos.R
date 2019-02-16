@@ -4,36 +4,14 @@
 ##  DATE:     2019-02-13
 ##  UPDATED:  2019-02-15
 
-# DEPENDENCIES ------------------------------------------------------------
-
-  library(tidyverse) 
-  library(ICPIutilities)
-  library(scales)
-  library(extrafont)
-
-  #import theme
-  source("R/plot_theme.R")
-
-
-# IMPORT ------------------------------------------------------------------
-
-  #GENIE PULL 
-  #  - Indicators: HTS_TST, HTS_TST_POS, TX_NEW, TX_CURR (Total Numerator)
-  #  - Date: 2019-02-15
-  
-  #site data
-    df_genie_site_num <- ICPIutilities::match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-2019-02-15 Total Num.zip",
-                                              save_rds = FALSE)
-  
-  #priority HTS site uids list
-    load("data/sites_hts.rda")
 
 # MUNGE -------------------------------------------------------------------
 
   #keep just USAID HTS
-    df_genie_hts <- df_genie_site_num %>% 
+    df_genie_hts <- df_genie_site %>% 
       filter(fundingagency == "USAID",
-             indicator %in% c("HTS_TST", "HTS_TST_POS"))
+             indicator %in% c("HTS_TST", "HTS_TST_POS"),
+             standardizeddisaggregate == "Total Numerator")
     
   #flag priority sites
     df_genie_hts <- df_genie_hts %>% 
@@ -164,9 +142,10 @@
            height = 5, width = 5, units = "in")
     
   #aggregate trend for positivity creation and comparison
-    df_genie_trend <- df_genie_site_num %>% 
+    df_genie_trend <- df_genie_site %>% 
       filter(fundingagency == "USAID",
-             indicator %in% c("HTS_TST", "HTS_TST_POS")) %>% 
+             indicator %in% c("HTS_TST", "HTS_TST_POS"),
+             standardizeddisggregate == "Total Numerator") %>% 
       group_by(indicator) %>% 
       summarise_at(vars(contains("q")), sum, na.rm = TRUE) %>% 
       ungroup() %>% 
@@ -199,9 +178,10 @@
       
 
   #aggregate trend for positivity creation and comparison
-    df_genie_trend_priority <- df_genie_site_num %>% 
+    df_genie_trend_priority <- df_genie_site %>% 
       filter(fundingagency == "USAID",
              indicator %in% c("HTS_TST", "HTS_TST_POS"),
+             standardizeddisaggregate == "Total Numerator",
              orgunituid %in% sites_hts) %>% 
       group_by(orgunituid, sitename, indicator) %>% 
       summarise_at(vars(contains("q")), sum, na.rm = TRUE) %>% 

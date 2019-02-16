@@ -4,29 +4,6 @@
 ##  DATE:     2019-02-14
 ##  UPDATED:  2019-02-15
 
-# DEPENDENCIES ------------------------------------------------------------
-
-  library(tidyverse) 
-  library(scales)
-  library(extrafont)
-  library(ICPIutilities)
-
-#import theme
-  source("R/plot_theme.R")
-
-
-# IMPORT ------------------------------------------------------------------
-
-  #GENIE PULL 
-  #  - Indicators: HTS_TST, TX_NEW (All disaggs)
-  #  - Date: 2019-02-15
-  
-  #site data
-  df_genie_site <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-2019-02-15.zip",
-                             save_rds = FALSE)
-  
-  #priority sites
-  load("data/sites_hts.rda")
   
 # MUNGE -------------------------------------------------------------------
 
