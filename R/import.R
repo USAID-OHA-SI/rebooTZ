@@ -14,6 +14,7 @@ library(ICPIutilities)
 #import theme
 source("R/plot_theme.R")
 
+
 # IMPORT ------------------------------------------------------------------
 
 #GENIE PULL 
@@ -26,7 +27,10 @@ df_genie_site <- match_msd("~/GitHub/rebooTZ/data/PEPFAR-Data-Genie-SiteByIMs-20
 
 
 #priority HTS site uids list
-  load("data/sites_tx.rda")
+  load("data/sites_hts.rda")
+  
+#priority HTS comminity  uids list
+  load("data/comm_hts.rda")
 
 #priority HTS site uids list
   load("data/sites_tx.rda")
