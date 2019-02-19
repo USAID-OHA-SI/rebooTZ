@@ -198,10 +198,12 @@
              height = 5, width = 5, units = "in")
       
       
+      full_hts <- c(sites_hts, comm_hts)
+      
     #volume v yield
       df_index_scatter_priority <- df_mods %>% 
         filter(modality %in% c("Index", "IndexMod"),
-               orgunituid %in% sites_hts) %>% 
+               orgunituid %in% full_hts) %>% 
         group_by(indicator, orgunituid, sitename, modality, resultstatus) %>%
         summarise_at(vars(fy2018apr, fy2019q1), sum, na.rm = TRUE) %>% 
         ungroup() %>% 
@@ -216,11 +218,11 @@
       df_index_scatter_priority %>% 
         filter(pd == "fy2019q1") %>% 
         ggplot(aes(Total, positivity, color = modality)) +
-        geom_point(alpha = .4) +
+        geom_point(aes(size = Positive ), alpha = .4) +
         scale_x_continuous(label = comma) +
         scale_y_continuous(label = percent) +
         scale_color_manual(values = c("#CC5234", "#335B8E")) +
-        expand_limits(x = 825, y = 1) +
+        #expand_limits(x = 825, y = 1) +
         labs(x = "total index testing volume", y = "positivity") +
         plot_theme()
       
@@ -228,4 +230,16 @@
              path = "Output",
              dpi = 300, 
              height = 5, width = 5, units = "in")
+      
+      df_index_scatter_priority %>% 
+        filter(pd == "fy2019q1") %>% 
+        summarise_at(vars(Positive, Total), sum, na.rm = TRUE) %>% 
+        mutate(positivity = Positive / Total)
+      
+      df_index_scatter_priority %>% 
+        filter(pd == "fy2019q1") %>% 
+        group_by(modality) %>% 
+        summarise_at(vars(Positive, Total), sum, na.rm = TRUE) %>% 
+        mutate(positivity = Positive / Total)
+      
       
