@@ -311,4 +311,9 @@
            dpi = 300, 
            height = 5, width = 11, units = "in")
     
+
+# CLEAN -------------------------------------------------------------------
+
+rm(df_genie_hts, df_genie_trend, df_genie_trend_priority, 
+   df_plot, df_plot_priority, lowpos, ks)  
     
