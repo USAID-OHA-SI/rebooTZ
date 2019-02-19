@@ -38,7 +38,6 @@
   }
 
 
-
 # MUNGE -------------------------------------------------------------------
 
   sites_hts <- top_sites(df_genie_site, "HTS_TST_POS", "Facility","fy2019_targets")
@@ -50,9 +49,6 @@
   sites_tx <- top_sites(df_genie_site, "TX_CURR", "Facility", "fy2019_targets")
   save(sites_tx, file = "data/sites_tx.rda")
   
-  comm_tx <- top_sites(df_genie_site, "TX_CURR", "Community", "fy2019_targets")
-  save(comm_tx, file = "data/comm_tx.rda")
-  
-  rm(top_sites, sites_hts, comm_hts, sites_tx, comm_tx)
+  rm(top_sites, sites_hts, comm_hts, sites_tx)
 
   
