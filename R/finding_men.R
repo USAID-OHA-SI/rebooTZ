@@ -22,20 +22,32 @@
       ungroup() %>% 
       gather(pd, val, starts_with("fy")) %>% 
       spread(sex, val) %>% 
-      mutate(share_m = Male / (Female + Male),
+      mutate(share_m = Male / (Female + Male) *100,
              pd = str_remove(pd, "20") %>% toupper(.),
-             operatingunit = "Tanzania")
+             operatingunit = "Tanzania") %>% 
+      select(pd, `Total Male Pos.` = Male, 
+             `Male Share of Pos. (%)` = share_m, 
+             operatingunit) %>% 
+      gather(ind, val, `Total Male Pos.`, `Male Share of Pos. (%)`) %>% 
+      mutate(max = ifelse(ind == "Total Male Pos.", 13000, 50),
+             ind = factor(ind, c("Total Male Pos.", "Male Share of Pos. (%)")))
     
   #plot tend
     df_male_trend %>% 
-      ggplot(aes(pd, share_m, color = operatingunit, group = operatingunit)) +
+      ggplot(aes(pd, val, color = ind, group = operatingunit)) +
+      geom_point(aes(y = max), color = "white", size = 0) + 
       geom_hline(yintercept = 0, color = "#595959") +
       geom_line(size = 1) +
       geom_point(size = 5) +
-      scale_y_continuous(labels = percent_format(1)) +
-      scale_color_manual(values = "#335B8E")+
-      labs(x = "", y = "male share of positive tests") +
-      plot_theme()
+      geom_text(aes(label = comma(val)),
+                family = "Gill Sans MT",
+                vjust = -1) +
+      scale_y_continuous(labels = comma) +
+      scale_color_manual(values = c("#335B8E", "#CC5234"))+
+      labs(x = "", y = "") +
+      facet_grid(ind ~ ., scales = "free_y") +
+      plot_theme() +
+      theme(axis.text.y = element_blank())
     
     ggsave("TZA_male_trend.png", 
            path = "Output",
