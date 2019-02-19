@@ -2,7 +2,7 @@
 ##  AUTHOR:   A.Chafetz | USAID
 ##  PURPOSE:  index testing trend
 ##  DATE:     2019-02-14
-##  UPDATED:  2019-02-15
+##  UPDATED:  2019-02-19
 
   
 # MUNGE -------------------------------------------------------------------
@@ -68,6 +68,35 @@
            dpi = 300, 
            height = 5, width = 7, units = "in")
     
+  #trend in index testing, comm
+    df_index_priority_comm <- df_mods %>% 
+      filter(modality %in% c("Index", "IndexMod"),
+             orgunituid %in% comm_hts) %>% 
+      group_by(indicator) %>%
+      summarise_at(vars(contains("q")), sum, na.rm = TRUE) %>% 
+      ungroup() %>% 
+      gather(pd, val, contains("q")) %>%
+      mutate(pd = str_remove(pd, "20") %>% toupper(.))
+    
+    
+  #plot index trend, comm
+    df_index_priority_comm  %>% 
+      ggplot(aes(pd, val)) +
+      geom_col(fill = "#6CA18F") +
+      geom_text(aes(label = comma(val)),
+                color = "#595959",
+                family = "Gill Sans MT",
+                vjust = -.5) +
+      labs(x = "", y = "") +
+      plot_theme() +
+      theme(axis.text.y = element_blank())
+    
+    ggsave("TZA_index_trend_priority_comm.png", 
+           path = "Output",
+           dpi = 300, 
+           height = 5, width = 7, units = "in")
+    
+    
   #facility v community
     df_index_type <- df_mods %>% 
       filter(modality %in% c("Index", "IndexMod")) %>% 
@@ -110,25 +139,27 @@
       mutate(pd = str_remove(pd, "20") %>% toupper(.)) %>% 
       arrange(modality, pd) %>% 
       group_by(pd, modality) %>% 
-      mutate(positivity = val / sum(val)) %>% 
-      ungroup %>% 
+      mutate(total = sum(val),
+             #positivity = val / sum(val)) %>% 
+             positivity = val / sum(val) *100) %>% 
+      ungroup() %>% 
       filter(resultstatus == "Positive") %>% 
-      mutate(lab = case_when(pd == "FY19Q1" & modality == "Index"    ~ "Fac",
-                             pd == "FY19Q1" & modality == "IndexMod" ~ "Comm"))
+      select(indicator, modality, pd, `Total Tests` = total, `Positivity (%)` = positivity) %>% 
+      gather(ind, val, `Total Tests`, `Positivity (%)`) %>% 
+      mutate(grp = paste(modality, ind),
+             ind = factor(ind, c("Total Tests", "Positivity (%)")),
+             type = ifelse(modality == "Index", "Facility", "Community")) 
       
   #graph type pos
     df_index_type_pos %>% 
-      ggplot(aes(pd, positivity, group = modality, color = modality)) +
+      ggplot(aes(pd, val, group = grp, color = modality)) +
       geom_hline(yintercept = 0, color = "#bfbfbf") +
       geom_line(size = 1) +
       geom_point(size = 5) +
-      geom_text(aes(label = lab),
-                na.rm = TRUE,
-                family = "Gill Sans MT",
-                hjust = -.5) +
-      scale_y_continuous(label = percent) +
-      scale_color_manual(values = c("#CC5234", "#335B8E")) +
+      scale_y_continuous(label = comma) +
+      scale_color_manual(values = c("#335B8E", "#CC5234")) +
       labs(x = "", y = "") +
+      facet_grid(ind ~ type, scales = "free_y") +
       plot_theme() 
     
     ggsave("TZA_index_type_trend_pos_.png", 
