@@ -208,14 +208,6 @@
            path = "Output",
            dpi = 300, 
            height = 5, width = 11, units = "in")
-    
-  #thousand format to match % spacing on above graph
-    ks <- function (x) { 
-      number_format(accuracy = 1,
-                    scale = 1/1000,
-                    suffix = "k",
-                    big.mark = ",")(x) 
-    }
   
   #plot trend for
     df_genie_trend_priority %>% 
@@ -315,5 +307,5 @@
 # CLEAN -------------------------------------------------------------------
 
 rm(df_genie_hts, df_genie_trend, df_genie_trend_priority, 
-   df_plot, df_plot_priority, lowpos, ks)  
+   df_plot, df_plot_priority, lowpos)  
     

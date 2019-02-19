@@ -14,6 +14,9 @@ library(ICPIutilities)
 #import theme
 source("R/plot_theme.R")
 
+#thousands to k function
+source("R/ks_format.R")
+
 
 # IMPORT ------------------------------------------------------------------
 
