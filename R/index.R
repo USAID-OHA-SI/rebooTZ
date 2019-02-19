@@ -241,5 +241,10 @@
         group_by(modality) %>% 
         summarise_at(vars(Positive, Total), sum, na.rm = TRUE) %>% 
         mutate(positivity = Positive / Total)
-      
+
+# CLEAN -------------------------------------------------------------------
+
+ rm(df_index, df_index_priority, df_index_priority_comm,
+    df_index_scatter, df_index_scatter_priority, df_index_type, 
+    df_index_type_pos, df_mods, full_hts)      
       
