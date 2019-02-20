@@ -54,47 +54,90 @@
            dpi = 300, 
            height = 5, width = 7, units = "in")
   
-    
-    #trend in finding men in priority sites
+  
+  full_hts <- c(sites_hts, comm_hts)
+  
+  #trend in finding men in priority sites
     df_male_trend_priority <- df_mods_o15 %>% 
       filter(resultstatus == "Positive",
-             orgunituid %in% sites_hts) %>% 
+             orgunituid %in% full_hts) %>% 
       group_by(sex, orgunituid, sitename) %>% 
       summarise_at(vars(contains("q")), sum, na.rm = TRUE) %>% 
       ungroup() %>% 
       gather(pd, val, starts_with("fy")) %>% 
-      spread(sex, val) %>% 
-      mutate(share_m = Male / (Female + Male),
-             share_m = ifelse(is.nan(share_m), NA, share_m),
-             pd = str_remove(pd, "20") %>% toupper(.),
-             operatingunit = "Tanzania",
-             orgunituid = factor(orgunituid, sites_hts),
-             sitename = str_remove(sitename, " - District Hospital|- Regional Referral Hospital"),
+      
+      mutate(sex = factor(sex, c("Male", "Female"))) %>% 
+      group_by(orgunituid, pd) %>% 
+      mutate(tot = sum(val),
+             share = val / sum(val),
+             tot = case_when(sex == "Male" ~ tot),
+             share = case_when(sex == "Male" ~ share)) %>% 
+      ungroup() %>% 
+      filter(!is.nan(share)) %>% 
+      mutate(pd = str_remove(pd, "20") %>% toupper(.),
+             orgunituid = factor(orgunituid, full_hts),
+             sitename = str_remove(sitename, " - District Hospital| - Regional Referral Hospital| - Designated District Hospital"),
              sitename = str_replace(sitename, "Dispensary", "Disp."),
              sitename = str_replace(sitename, "Health Cent(er|re)", "HC")) %>% 
-      arrange(orgunituid) %>% 
+      arrange(orgunituid, pd, sex)%>% 
       mutate(sitename = as_factor(sitename))
     
     
     #plot tend, priority
     df_male_trend_priority %>% 
-      ggplot(aes(pd, share_m, color = operatingunit, group = sitename)) +
+      filter(orgunituid %in% sites_hts) %>% 
+      ggplot(aes(pd, val, fill = sex, group = sitename)) +
       geom_hline(yintercept = 0, color = "#595959") +
-      geom_hline(yintercept = .5, color = "#595959", linetype = "dashed", size = .75) +
-      geom_line(size = 1, na.rm = TRUE) +
-      geom_point(size = 5, na.rm = TRUE) +
-      scale_y_continuous(labels = percent_format(1)) +
+      geom_col(na.rm = TRUE) +
+      geom_text(aes(y = tot, label = percent(share, accuracy = 1)),
+                color = "#595959",
+                family = "Gill Sans MT",
+                vjust = -1,
+                na.rm = TRUE) +
+      scale_y_continuous(labels = comma) +
       scale_x_discrete(labels = c("FY18Q1", rep("", 3), "FY19Q1")) +
-      scale_color_manual(values = "#6CA18F")+
-      labs(x = "", y = "male share of positive tests") +
-      facet_wrap(. ~ sitename, nrow = 2) +
-      plot_theme()
+      scale_fill_manual(name = "", values = c("#6CA18F", "#bfbfbf")) +
+      expand_limits(y = 250) +
+      labs(x = "", y = "positive tests (male share)") +
+      facet_wrap(. ~ sitename, nrow = 3) +
+      plot_theme() +
+      theme(legend.position = "bottom")
     
     ggsave("TZA_male_trend_priority.png", 
            path = "Output",
            dpi = 300, 
            height = 5, width = 11, units = "in") 
-      
+    #comm
+    df_male_trend_priority %>% 
+      filter(orgunituid %in% comm_hts) %>% 
+      ggplot(aes(pd, val, fill = sex, group = sitename)) +
+      geom_hline(yintercept = 0, color = "#595959") +
+      geom_col(na.rm = TRUE) +
+      geom_text(aes(y = tot, label = percent(share, accuracy = 1)),
+                color = "#595959",
+                family = "Gill Sans MT",
+                vjust = -1,
+                na.rm = TRUE) +
+      scale_y_continuous(labels = comma) +
+      scale_x_discrete(labels = c("FY18Q1", rep("", 3), "FY19Q1")) +
+      scale_fill_manual(name = "", values = c("#6CA18F", "#bfbfbf")) +
+      expand_limits(y = 250) +
+      labs(x = "", y = "positive tests (male share)") +
+      facet_wrap(. ~ sitename, nrow = 3) +
+      plot_theme() +
+      theme(legend.position = "bottom")
+    
+    ggsave("TZA_male_trend_priority_comm.png", 
+           path = "Output",
+           dpi = 300, 
+           height = 5, width = 11, units = "in")
+    
+    df_male_trend_priority %>% 
+      filter(sex == "Male",
+             pd == "FY19Q1") %>% 
+      summarise_at(vars(val, tot), sum, na.rm = TRUE) %>% 
+      mutate(share_m = val/ tot)
+    
   #male share by site
     df_male_share_sites <- df_mods_o15 %>% 
       filter(resultstatus == "Positive") %>% 
@@ -111,26 +154,6 @@
       mutate(orgunituid = as_factor(orgunituid),
              rownum = 1:n())
     
-    # rows <- df_male_share_sites %>% 
-    #   nrow()
-    # 
-    # namedrows <- c(.25, .5, .75) *rows
-    # 
-    # names <- df_male_share_sites %>% 
-    #   mutate(site_share = case_when(rownum %in% namedrows~ paste0((rownum/rows)*100, "%"))) %>% 
-    #   pull(site_share)
-
-    #plot male share col
-    # df_male_share_sites %>% 
-    #   ggplot(aes(orgunituid, share_m)) +
-    #   geom_col(na.rm = TRUE) +
-    #   scale_y_continuous(label = percent) +
-    #   scale_x_discrete(labels = names) +
-    #   labs(y = "site's male share of positives", x = "") +
-    #   plot_theme() +
-    #   theme(axis.text.x = element_blank(),
-    #         panel.grid.major.x = element_blank(),
-    #         panel.grid.minor.x = element_blank())
     
     df_male_share_sites %>% 
       ggplot(aes(share_m)) +
