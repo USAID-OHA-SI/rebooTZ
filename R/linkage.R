@@ -139,4 +139,9 @@
          path = "Output",
          dpi = 300, 
          height = 5, width = 7, units = "in")
+
+# CLEAN -------------------------------------------------------------------
+
+rm(df_genie_link, df_genie_link_priority, df_link, df_link_age, 
+   df_link_priority, full_hts)  
   
