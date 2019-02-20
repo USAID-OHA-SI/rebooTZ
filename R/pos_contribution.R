@@ -2,7 +2,7 @@
 ##  AUTHOR:   A.Chafetz | USAID
 ##  PURPOSE:  positive contribution
 ##  DATE:     2019-02-14
-##  UPDATED:  
+##  UPDATED:  2019-02-19
 
 
 # MUNGE -------------------------------------------------------------------
@@ -14,7 +14,7 @@
              standardizeddisaggregate %in% c("Modality/Age Aggregated/Sex/Result", 
                                              "Modality/Age/Sex/Result"))
 
-  #
+  #site share of positives
     df_site_pos <- df_mods %>% 
       group_by(sitename, orgunituid, indicator, resultstatus) %>% 
       summarise_at(vars(fy2019q1), sum, na.rm = TRUE) %>% 
@@ -26,8 +26,8 @@
     
     df_site_pos %>% 
       ggplot(aes(positivity)) +
-      geom_histogram(bins = 20, color = "white", 
-                   fill = c("#CC5234", rep("#595959", 19))) +
+      geom_histogram(bins = 33, color = "white", 
+                   fill = c("#CC5234", rep("#595959", 32))) +
       scale_x_continuous(label = percent) +
       labs(x = "site's share of positives", y = "sites") +
       plot_theme() 
@@ -38,10 +38,10 @@
            height = 5, width = 7, units = "in")  
     
     df_site_pos %>% 
-      mutate(below = positivity <.05) %>% 
+      mutate(below = positivity <.03) %>% 
       count(below) %>% 
       spread(below, n) %>% 
-      mutate(sites_more_men = `TRUE`/ (`FALSE` + `TRUE`))
+      mutate(sites_low_pos = `TRUE`/ (`FALSE` + `TRUE`))
   
   #modality breakdown
     df_mod_pos <- df_mods %>% 
