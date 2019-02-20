@@ -208,4 +208,9 @@
            path = "Output",
            dpi = 300, 
            height = 5, width = 7, units = "in")
+
+# CLEAN -------------------------------------------------------------------
+
+rm(df_male_mod, df_male_share_sites, df_male_trend, df_male_trend_priority,
+   df_mod_pos_priority, df_mods_o15, full_hts)  
     
