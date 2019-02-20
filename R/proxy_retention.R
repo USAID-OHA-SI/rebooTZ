@@ -2,7 +2,7 @@
 ##  AUTHOR:   A.Chafetz | USAID
 ##  PURPOSE:  finding men
 ##  DATE:     2019-02-14
-##  UPDATED:  
+##  UPDATED:  2019-02-20
 
 
 # MUNGE -------------------------------------------------------------------
@@ -22,14 +22,14 @@
     filter(val != 0) %>% 
     spread(indicator, val, fill = 0) %>% 
     group_by(orgunituid, sex, agecoarse) %>% 
-    mutate(proxyret = (TX_CURR - TX_NEW) / lag(TX_CURR))
+    mutate(proxyret = TX_CURR / (lag(TX_CURR) + TX_NEW))
   
 
   df_proxyret_overall <- df_proxyret_age %>% 
     group_by(pd) %>% 
-    summarise_at(vars(TX_NEW, TX_CURR, proxyret), sum, na.rm = TRUE) %>% 
+    summarise_at(vars(TX_NEW, TX_CURR), sum, na.rm = TRUE) %>% 
     ungroup() %>% 
-    mutate(proxyret = (TX_CURR - TX_NEW) / lag(TX_CURR),
+    mutate(proxyret = TX_CURR / (lag(TX_CURR) + TX_NEW),
            pd = str_remove(pd, "20") %>% toupper(.),
            operatingunit =  "Tanzania") %>% 
     filter(pd != "FY18Q1")
@@ -55,9 +55,9 @@
   df_proxyret_priority <- df_proxyret_age %>% 
     filter(site_type == "Priority") %>% 
     group_by(orgunituid, sitename, pd) %>% 
-    summarise_at(vars(TX_NEW, TX_CURR, proxyret), sum, na.rm = TRUE) %>% 
+    summarise_at(vars(TX_NEW, TX_CURR), sum, na.rm = TRUE) %>% 
     ungroup() %>% 
-    mutate(proxyret = (TX_CURR - TX_NEW) / lag(TX_CURR),
+    mutate(proxyret = TX_CURR / (lag(TX_CURR) + TX_NEW),
            pd = str_remove(pd, "20") %>% toupper(.),
            operatingunit =  "Tanzania",
            orgunituid = factor(orgunituid, sites_tx),
@@ -77,7 +77,7 @@
     scale_color_manual(values = "#6CA18F") +
     expand_limits(y = 0) +
     labs(x = "", y = "proxy retention") +
-    facet_wrap(. ~ sitename, nrow = 2) +
+    facet_wrap(. ~ sitename, nrow = 3) +
     plot_theme()
 
   ggsave("TZA_proxyret_trend_priority.png", 
@@ -92,7 +92,7 @@
     ungroup() %>% 
     arrange(sex, pd) %>% 
     group_by(sex) %>% 
-    mutate(proxyret = (TX_CURR - TX_NEW) / lag(TX_CURR)) %>% 
+    mutate(proxyret = TX_CURR / (lag(TX_CURR) + TX_NEW)) %>% 
     ungroup() %>% 
     mutate(pd = str_remove(pd, "20") %>% toupper(.),
            sex = factor(sex, c("Male", "Peds", "Female")),
