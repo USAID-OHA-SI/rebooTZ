@@ -129,3 +129,8 @@
            dpi = 300, 
            height = 5, width = 7, units = "in")  
     
+
+# CLEAN -------------------------------------------------------------------
+
+rm(df_mod_pos, df_mod_pos_priority, df_mods, df_site_pos, full_hts)    
+    
