@@ -26,10 +26,10 @@
     
     df_site_pos %>% 
       ggplot(aes(positivity)) +
-      geom_histogram(bins = 33, color = "white", 
-                   fill = c("#CC5234", rep("#595959", 32))) +
+      geom_histogram(bins = 50, color = "white", 
+                   fill = c(rep("#CC5234",2),  rep("#595959", 48))) +
       scale_x_continuous(label = percent) +
-      labs(x = "site's share of positives", y = "sites") +
+      labs(x = "positivity", y = "# of sites") +
       plot_theme() 
     
     ggsave("TZA_pos_bysite.png", 
@@ -85,8 +85,10 @@
          height = 5, width = 7, units = "in")  
   
   #modality breakdown for priority sites
-    df_mod_pos_priority <- df_mods %>% 
-      filter(orgunituid %in% sites_hts) %>% 
+  full_hts <- c(sites_hts, comm_hts)
+  
+  df_mod_pos_priority <- df_mods %>% 
+      filter(orgunituid %in% full_hts) %>% 
       group_by(indicator, modality, resultstatus) %>% 
       summarise_at(vars(fy2019q1), sum, na.rm = TRUE) %>% 
       ungroup() %>% 
@@ -101,7 +103,7 @@
       mutate(ind = factor(ind, c("Total", "Positivity")),
              lab_tot = case_when(ind == "Total" ~ comma(val)),
              lab_pct = case_when(ind != "Total" ~ percent(val, accuracy = .1)),
-             max = ifelse(ind == "Total", 19000, .2)
+             max = ifelse(ind == "Total", 26000, .1)
              )
     
     df_mod_pos_priority %>% 
