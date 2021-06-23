@@ -5,3 +5,19 @@
 
 data/
 Output/
+#no data
+*.csv
+*.txt
+*.rds
+*.xlsx
+*.xls
+*.zip
+*.png
+*.twbx
+*.pptx
+
+#nothing from these folders
+AI/*
+GIS/*
+Images/*
+Graphics/*
