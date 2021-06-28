@@ -331,11 +331,16 @@
 
 # INDEX SHARE OF TOTAL TESTS ----------------------------------------------
 
+  lst_hts_index_reg <- df_md %>% 
+    filter(indicator == "C_POS_All",
+           partner %in% c("Deloitte", "EGPAF")) %>% 
+    distinct(region) %>% 
+    pull()
+  
   df_index_share <- df_md %>% 
     filter(indicator %in% c("C_POS_All", "HTS_POS_ALL"),
            month >= "2020-10-01",
-           partner != "THPS")
-  
+           region %in% lst_hts_index_reg)
   
   df_index_share <- df_index_share %>%
     bind_rows(df_index_share %>% mutate(region = "USAID")) %>% 
@@ -358,13 +363,24 @@
     ggplot(aes(month, index_share, color = fill_color, fill = fill_color)) +
     geom_area(alpha = .6) +
     facet_wrap(~fct_reorder(region_val, hts_pos_all, max, na.rm = TRUE, .desc = TRUE)) +
+    expand_limits(y = 1) +
     scale_y_continuous(labels = percent) +
-    scale_x_date() +
+    scale_x_date(breaks = c(curr_mo - years(1), "2020-10-01",curr_mo), 
+                 date_labels = "%b %y") +
     scale_fill_identity(aesthetics = c("fill", "color")) +
+    labs(x = NULL, y = NULL,
+         title = "SHARE OF POSITIVE INDEX TEST OF ALL POSITIVE TESTS (ALL AGES)",
+         caption = "Positive Index Share = Positive Index Tests / All Positive Tests
+           Source: Tanzania Monthly Data (thru May 2021)
+                          SI analytics: Aaron Chafetz
+                       US Agency for International Development") +
     si_style_ygrid() +
     theme(strip.text.x = element_markdown(),
           panel.spacing.x = unit(1.5, "lines"),
           panel.spacing.y = unit(.5, "lines"))
+  
+  
+  si_save("Images/TZA_MonthlyReview_Index-Share-region.png") 
   
   
 # LINKAGE -----------------------------------------------------------------
