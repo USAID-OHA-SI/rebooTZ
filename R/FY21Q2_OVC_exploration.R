@@ -18,6 +18,7 @@
   library(ggtext)
   library(glue)
   library(ggrepel)
+  library(waffle)
   
 
 # GLOBAL VARIABLES --------------------------------------------------------
@@ -128,9 +129,109 @@
            snuprioritization = snuprioritization %>% 
              str_remove("^[:digit:]{1,} - ") %>% 
              str_remove(": Saturation"),
-           snuprioritization = factor(snuprioritization, c("Scale-Up", "Sustained", "Attained")))
+           snuprioritization = factor(snuprioritization, c("Scale-Up", "Sustained", "Attained")),
+           psnu_ovc = !is.na(ovc_hivstat))
+  
+
+# VIZ - PSNU CLASSIFICATIONS ----------------------------------------------
+
+
+  df_class <- df_join %>%
+    filter(!is.na(snuprioritization)) %>% 
+    group_by(snuprioritization) %>% 
+    summarise(across(c(tx_curr, plhiv), sum, na.rm = TRUE),
+              n_psnu = n()) %>% 
+    ungroup() 
+  
+  df_class <- df_class %>% 
+    mutate(snuprioritization = ifelse(plhiv == max(plhiv),
+                                      glue("{snuprioritization}\n # of councils = {n_psnu}"),
+                                      glue("{snuprioritization}\n {n_psnu}"))) %>% 
+    pivot_longer(c(tx_curr, plhiv), 
+                 names_to = "indicator") %>% 
+    mutate(indicator = toupper(indicator),
+           indicator = recode(indicator,
+                              "TX_CURR" = "TX_CURR (<20yo)",
+                              "PLHIV" = "PLHIV (<20yo)"),
+           indicator = fct_inorder(indicator) %>% fct_rev(),
+           position = ifelse(indicator == "TX_CURR (<20yo)", 0, value),
+           lab_color = ifelse(indicator == "TX_CURR (<20yo)", "white", "#505050"),
+           alpha_fill = ifelse(indicator == "TX_CURR (<20yo", 1, .8))
+  
+  df_class %>% 
+    ggplot(aes(fct_reorder(snuprioritization, value, max, .desc = TRUE), value,
+               alpha = alpha_fill, fill = indicator)) +
+    geom_blank(aes(y = value * 1.05)) +
+    geom_col(position = "identity") +
+    geom_col(data = filter(df_class, indicator == "TX_CURR (<20yo)")) +
+    geom_text(aes(label = number(value, accuracy = 1, scale = 1e-3, suffix = "k"), 
+                  y = position, color = lab_color), 
+              vjust = -1,family = "Source Sans Pro", size = 12/.pt) +
+    scale_y_continuous(label = comma) +
+    scale_alpha_identity() +
+    scale_color_identity() +
+    scale_fill_manual(values = c("PLHIV (<20yo)" = trolley_grey_light, 
+                                 "TX_CURR (<20yo)" = scooter)) +
+    labs(x = NULL, y = NULL, fill = NULL,
+         title = "MOST A/CLHIV ARE IN COUNCILS CATEGORIZED AS SCALE-UP IN FY21",
+         caption = "Source: FY21Q2c MSD
+         SI Analytics: Aaron Chafetz
+         US Agency for International Development") +
+    si_style_ygrid() +
+    theme(axis.text.y = element_blank())
+  
+  si_save("Images/FY21Q2_PSNU_class.png")
+    
   
   
+
+# VIZ - NON OVC COUNCIL BREAKDOWN -----------------------------------------
+
+
+  df_brkdwn <- df_join %>% 
+    filter(!is.na(snuprioritization)) %>% 
+    group_by(snuprioritization) %>% 
+    summarise(n_psnu = n(),
+              n_psnu_ovc = sum(psnu_ovc)) %>% 
+    ungroup() %>% 
+    mutate(n_psnu_non_ovc = n_psnu - n_psnu_ovc,
+           tot_psnus = sum(n_psnu) - n_psnu,
+           snuprioritization = glue("{snuprioritization} Councils ({n_psnu})"),
+           snuprioritization = fct_reorder(snuprioritization, n_psnu, .desc = TRUE)) %>% 
+    select(-n_psnu) %>% 
+    pivot_longer(-snuprioritization, names_to = "type") %>% 
+    mutate(fill_color = case_when(type == "n_psnu_non_ovc" ~ golden_sand,
+                                  type == "n_psnu_ovc" ~ scooter,
+                                  TRUE ~ trolley_grey_light),
+           type = factor(type, c("n_psnu_non_ovc", "n_psnu_ovc", "tot_psnus")))
+  
+  tot_non_ovc <- df_brkdwn %>%
+    filter(type == "n_psnu_non_ovc") %>% 
+    count(wt = value) %>% 
+    pull()
+  
+  tot_psnus <- df_join %>% 
+    filter(!is.na(snuprioritization)) %>% 
+    nrow()
+  
+  df_brkdwn %>% 
+    ggplot(aes(fill = fill_color, values = value)) +
+    geom_waffle(color = "white", size = 1.2) +
+    scale_fill_identity() +
+    facet_wrap(~snuprioritization) +
+    coord_equal() +
+    labs(title = glue("OF THE {tot_psnus} TOTAL COUNCILS, <span style = 'color:{golden_sand};'>{tot_non_ovc}</span> ARE <span style = 'color:{golden_sand};'>WITHOUT OVC PROGRAMMING</span>"),
+         subtitle = "Most non-OVC councils are categorized as sustained",
+         caption = "Source: FY21Q2c MSD
+         SI Analytics: Aaron Chafetz
+         US Agency for International Development") +
+    si_style_nolines() +
+    theme(axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          plot.title = element_markdown())
+    
+  si_save("Graphics/FY21Q2_PSNU_class_nonovc.svg")
+    
 # VIZ ---------------------------------------------------------------------
 
   
