@@ -309,5 +309,3 @@
   plot_map("EpiC", FALSE)
   
   walk(unique(df_map$partner)[1:5], plot_map)
-
-  
