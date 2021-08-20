@@ -311,31 +311,31 @@
   
   ###
     
-    terr <- si_path("path_raster") %>% 
-    gisr::get_raster()
-  
-  df_attrs <- get_attributes(country = "Tanzania")
-  
-  file_shp <- return_latest(
-    folderpath = si_path("path_vector"),
-    pattern = "VcPepfarPolygons.*.shp",
-    recursive = TRUE
-  )
-
-  
-  spdf_pepfar <- file_shp %>% 
-    sf::read_sf() %>%
-    left_join(df_attrs, by = c("uid" = "id")) %>% 
-    filter(!is.na(name))
-  
-  adm0 <- get_admin0('United Republic of Tanzania')
-  
-  adm0 %>% gview()
-  
-  adm1 <- get_admin1('United Republic of Tanzania')
-  
-  adm1 %>% gview()
-  
+  #   terr <- si_path("path_raster") %>% 
+  #   gisr::get_raster()
+  # 
+  # df_attrs <- get_attributes(country = "Tanzania")
+  # 
+  # file_shp <- return_latest(
+  #   folderpath = si_path("path_vector"),
+  #   pattern = "VcPepfarPolygons.*.shp",
+  #   recursive = TRUE
+  # )
+  # 
+  # 
+  # spdf_pepfar <- file_shp %>% 
+  #   sf::read_sf() %>%
+  #   left_join(df_attrs, by = c("uid" = "id")) %>% 
+  #   filter(!is.na(name))
+  # 
+  # adm0 <- get_admin0('United Republic of Tanzania')
+  # 
+  # adm0 %>% gview()
+  # 
+  # adm1 <- get_admin1('United Republic of Tanzania')
+  # 
+  # adm1 %>% gview()
+  # 
   # adm0 <- spdf_pepfar %>% 
   #   filter(label == "country")
   # 
