@@ -329,18 +329,28 @@
     filter(!is.na(name))
   
   adm0 <- get_admin0('United Republic of Tanzania')
+  
+  adm0 %>% gview()
+  
   adm1 <- get_admin1('United Republic of Tanzania')
+  
+  adm1 %>% gview()
+  
   # adm0 <- spdf_pepfar %>% 
   #   filter(label == "country")
   # 
   # adm1 <- spdf_pepfar %>% 
   #   filter(label == "snu1")
   
-  terrain_map(countries = adm0, # or "Tanzania",
-              adm0 = adm0,
-              adm1 = adm1,
-              terr = terr, #si_path("path_raster"),
-              mask = TRUE)
+  terrain_map(countries = 'United Republic of Tanzania',
+              mask = TRUE,
+              terr = si_path("path_raster"))
+  
+  # terrain_map(countries = adm0, # or "Tanzania",
+  #             adm0 = adm0,
+  #             adm1 = adm1,
+  #             terr = terr, #si_path("path_raster"),
+  #             mask = TRUE)
   
   
   
