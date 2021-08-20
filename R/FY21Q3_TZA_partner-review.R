@@ -107,7 +107,8 @@
   #aggregate to regional level
   df_achv <- df_sub %>% 
     bind_rows(df_sub %>% 
-                mutate(snu1 = "NATIONAL")) %>% 
+                mutate(snu1 = "NATIONAL",
+                       snu1uid = "NATIONAL")) %>% 
     filter(standardizeddisaggregate %in% c("Total Numerator", "Total Denominator")) %>% 
     group_by(fiscal_year, partner, snu1, snu1uid, indicator) %>% 
     summarize(across(c(targets, cumulative), sum, na.rm = TRUE), 
@@ -191,7 +192,7 @@
   #limit to correct age/sex disaggs
   df_agesex <- df_sub %>% 
     inner_join(df_disaggs) %>% 
-    filter(ageasentered != "Unknown Age")
+    filter(ageasentered %ni% c("Unknown Age", "<10"))
     
   #aggregate
   df_agesex <- df_agesex %>% 
@@ -243,7 +244,7 @@
             plot.subtitle = element_markdown())
     
     if(export == TRUE){
-      si_save(glue("Images/FY{curr_fy}Q{curr_qtr}_TZA_Partner-AgeSex_{ptnr}.png"))
+      si_save(glue("Images/FY{curr_fy}Q{curr_qtr}_TZA_Partner-AgeSex_{ptnr}.png"), v)
     } else {
       return(v)
     }
@@ -268,25 +269,45 @@
     mutate(indicator = factor(indicator, ind_sel))
   
 
-  df_map %>%
-    filter(partner == "EGPAF",
-           # !is.na(snu1)
-           ) %>%
-    ggplot() +
-    geom_sf(data = shp_tza, fill = trolley_grey_light, alpha = .2) +
-    geom_sf(aes(fill = achv_color, geometry = geometry)) +
-    # geom_sf_text(aes(label = percent(achievement, 1), geometry = geometry),
-    #              family = "Source Sans Pro", color = "#505050", size = 7/.pt) +
-    scale_fill_identity() +
-    facet_wrap(~indicator) +
-    labs(x = NULL, y = NULL) +
-    si_style_map() +
-    theme(panel.spacing.x = unit(.5, "lines"),
-          panel.spacing.y = unit(.5, "lines"),
-          strip.text = element_text(face = "bold")
-          )
+  plot_map <- function(ptnr, export = TRUE){
+    v <- df_map %>%
+      filter(partner == {ptnr},
+             !is.na(snu1)
+      ) %>%
+      ggplot() +
+      geom_sf(data = shp_tza, fill = trolley_grey_light, alpha = .2, size = .2) +
+      geom_sf(aes(fill = achv_color, geometry = geometry), size = .2) +
+      # geom_sf_text(aes(label = percent(achievement, 1), geometry = geometry),
+      #              family = "Source Sans Pro", color = "#505050", size = 7/.pt) +
+      scale_fill_identity() +
+      facet_wrap(~indicator) +
+      labs(x = NULL, y = NULL,
+           title = glue("FY{curr_fy}Q{curr_qtr} Tanzania | {ptnr}") %>% toupper,
+           subtitle = glue("Partner regional achievement<br>
+                         <span style = 'font-size:11pt;color:{color_caption};'>Goal for 75% at Q3 (snapshot indicators pegged to year end target 100%)</span>"),
+           caption = glue("Source: {source}
+                        US Agency for International Development")) +
+      si_style_map() +
+      theme(panel.spacing.x = unit(.5, "lines"),
+            panel.spacing.y = unit(.5, "lines"),
+            plot.subtitle = element_markdown(),
+            strip.text = element_text(face = "bold"))
+    
+    if(export == TRUE){
+      si_save(glue("Images/FY{curr_fy}Q{curr_qtr}_TZA_Partner-Map_{ptnr}.png"), v)
+    } else {
+      return(v)
+    }
+  }
+  
 
-
+  plot_map("EGPAF", FALSE)
+  
+  walk(unique(df_map$partner)[1:5], plot_map)
+  
+  
+  
+  
   
   ###
     
