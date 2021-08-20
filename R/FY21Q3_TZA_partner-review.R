@@ -3,7 +3,7 @@
 # PURPOSE:  provide additional FY21Q3 partner review slides
 # LICENSE:  MIT
 # DATE:     2021-08-19
-# UPDATED: 
+# UPDATED:  2021-08-20
 
 
 # SOURCE META DATA --------------------------------------------------------
@@ -213,7 +213,9 @@
            curr_target = ifelse(sex == "Female", -curr_target, curr_target),
            indicator = factor(indicator, ind_sel))
 
-  
+
+# VIZ - AGE/SEX -----------------------------------------------------------
+
   plot_agesex <- function(ptnr, export = TRUE){
     v <- df_agesex_viz %>% 
       filter(partner == {ptnr}) %>% 
@@ -257,26 +259,29 @@
 
 # MUNGE - MAP -------------------------------------------------------------
 
+  #build terrain map to form base
+  map_terr <- terrain_map(countries = 'United Republic of Tanzania',
+                          mask = TRUE,
+                          terr = si_path("path_raster"))
+  
+  #limit TZA shapefile to just uids and geom before merging with data
   shp_tza <- shp_tza %>% 
-    select(#snu1 = orgunit, 
-           snu1uid = uid, geometry)
+    select(snu1uid = uid, geometry)
   
   #join shapefile to data
   df_map <- df_achv %>% 
     filter(snu1 != "NATIONAL") %>% 
-    complete(indicator, nesting(partner), fill = list(achv_color = trolley_grey_light, achievement = 0)) %>%
+    # complete(indicator, nesting(partner), fill = list(achv_color = trolley_grey_light, achievement = 0)) %>%
     full_join(shp_tza) %>% 
     mutate(indicator = factor(indicator, ind_sel))
   
 
+# VIZ - MAP ---------------------------------------------------------------
+
   plot_map <- function(ptnr, export = TRUE){
-    v <- df_map %>%
-      filter(partner == {ptnr},
-             !is.na(snu1)
-      ) %>%
-      ggplot() +
-      geom_sf(data = shp_tza, fill = trolley_grey_light, alpha = .2, size = .2) +
-      geom_sf(aes(fill = achv_color, geometry = geometry), size = .2) +
+    v <-  map_terr +
+      geom_sf(data = filter(df_map, partner == {ptnr}),
+              aes(fill = achv_color, geometry = geometry), size = .2) +
       # geom_sf_text(aes(label = percent(achievement, 1), geometry = geometry),
       #              family = "Source Sans Pro", color = "#505050", size = 7/.pt) +
       scale_fill_identity() +
@@ -301,47 +306,8 @@
   }
   
 
-  plot_map("EGPAF", FALSE)
+  plot_map("EpiC", FALSE)
   
   walk(unique(df_map$partner)[1:5], plot_map)
-  
-  
-  
-  
-  
-  ###
-    
-    terr <- si_path("path_raster") %>% 
-    gisr::get_raster()
-  
-  df_attrs <- get_attributes(country = "Tanzania")
-  
-  file_shp <- return_latest(
-    folderpath = si_path("path_vector"),
-    pattern = "VcPepfarPolygons.*.shp",
-    recursive = TRUE
-  )
 
-  
-  spdf_pepfar <- file_shp %>% 
-    sf::read_sf() %>%
-    left_join(df_attrs, by = c("uid" = "id")) %>% 
-    filter(!is.na(name))
-  
-  adm0 <- get_admin0('United Republic of Tanzania')
-  adm1 <- get_admin1('United Republic of Tanzania')
-  # adm0 <- spdf_pepfar %>% 
-  #   filter(label == "country")
-  # 
-  # adm1 <- spdf_pepfar %>% 
-  #   filter(label == "snu1")
-  
-  terrain_map(countries = adm0, # or "Tanzania",
-              adm0 = adm0,
-              adm1 = adm1,
-              terr = terr, #si_path("path_raster"),
-              mask = TRUE)
-  
-  
-  
   
