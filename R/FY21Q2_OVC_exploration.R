@@ -1,16 +1,30 @@
 # PROJECT:  rebooTZ
-# AUTHOR:   A.Chafetz | USAID
+# AUTHOR:   A.Chafetz, K. Srikanth | USAID
 # PURPOSE:  
 # LICENSE:  MIT
 # DATE:     2021-07-15
-# UPDATED: 
+# UPDATED:  2022-08-24
+
+# GENIE META DATA ---------------------------------------------------------
+
+# PSNU By IM
+# DATIM data as of: 08/14/2021 21:59:04 UTC
+# Genie report updated: 08/24/2021 01:42:31 UTC
+# 
+# Current period(s): 2020 Target,  2020 Q1,  2020 Q2,  2020 Q3,  2020 Q4,  2021 Target,  2021 Q1,  2021 Q2,  2021 Q3 
+
+# Operating Unit: Tanzania
+# Daily/Frozen: Daily
+# Indicator: OVC_SERV,OVC_HIVSTAT, OVC_HIVSTAT_POS, TX_CURR, TX_PLVS
+# Fiscal Year: 2020, 2021, 2022
+
 
 # DEPENDENCIES ------------------------------------------------------------
   
   library(tidyverse)
   library(glitr)
   library(glamr)
-  library(ICPIutilities)
+  library(gophr)
   library(extrafont)
   library(scales)
   library(tidytext)
@@ -19,59 +33,66 @@
   library(glue)
   library(ggrepel)
   library(waffle)
+  library(readxl)
   
 
 # GLOBAL VARIABLES --------------------------------------------------------
 
-  age_range <- c("<01", "01-04", "05-09", "10-14", "15-17",  "15-19"
-                 #"18+"
-                 )  
+  genie_path <- "Data/Genie-PSNUByIMs-Tanzania-Daily-2021-08-24.zip"
+  reviewfile_path <- "Data/OVC Targeting Review and Alignment - 08.12.2021.xlsx" 
+  age_range <- c("<01", "01-04", "05-09", "10-14", "15-17", "15-19") #"18+"
 
+  source <- source_info(genie_path) %>% str_replace("p", "i")
+  source_nat <- source_info(si_path(), "NAT_SUBNAT")
+  
+  curr_pd <- source_info(genie_path, return = "period")
+  curr_fy <- source_info(genie_path, return = "fiscal_year")
+  
 # IMPORT ------------------------------------------------------------------
   
-  df_msd <- si_path() %>% 
-    return_latest("PSNU_IM") %>% 
-    read_rds()   
+  #PSNUxIM Genie w/ FY22 targets  
+  df_genie <- read_msd(genie_path)
   
   df_subnat <- si_path() %>% 
     return_latest("NAT_SUBNAT") %>% 
     read_rds()  
   
+  df_psnu_agency <- read_excel(reviewfile_path, range = "A2:C194") %>% 
+    select(psnu = Council, clinical_ip_agency = `Agency\r\nby Regional Clinical IP`) %>% 
+    mutate(psnu = ifelse(psnu == "Military", "_Military Tanzania", psnu))
+  
 # MUNGE -------------------------------------------------------------------
   
-  curr_pd <- identifypd(df_msd)
-  curr_fy <- identifypd(df_msd, "year")
-  
-  df_msd <- df_msd %>% 
-    filter(operatingunit == "Tanzania")
-  
-  df_msd %>% 
-    filter(fiscal_year == 2021,
-           indicator %in% c("OVC_SERV","OVC_HIVSTAT", "OVC_HIVSTAT_POS")) %>% 
-    count(indicator, standardizeddisaggregate, otherdisaggregate, wt = cumulative)
-    
-  df_tx <- df_msd %>% 
-    filter(fiscal_year >= curr_fy - 1,
-           indicator %in% c("TX_CURR", "TX_PVLS"),
+  df_tx <- df_genie %>% 
+    filter(indicator %in% c("TX_CURR", "TX_PVLS"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus","Age/Sex/Indication/HIVStatus"),
-           ageasentered %in% age_range) %>%
+           ageasentered %in% age_range) %>% 
+    mutate(age_grp = "all")
+  
+  df_tx <- df_tx %>%
+    bind_rows(df_tx %>% filter(trendscoarse == "<15") %>% mutate(age_grp = "u15")) %>% 
     clean_indicator() %>% 
-    group_by(fiscal_year, snu1, psnu, psnuuid, snuprioritization, indicator) %>% 
-    summarise(across(starts_with("qtr"), sum, na.rm = TRUE)) %>% 
+    group_by(fiscal_year, snu1, psnu, psnuuid, snuprioritization, indicator, age_grp) %>% 
+    summarise(across(c(targets, starts_with("qtr")), sum, na.rm = TRUE)) %>% 
     ungroup() %>% 
-    reshape_msd() %>% 
+    reshape_msd("quarters") %>% 
+    select(-results_cumulative) %>%
+    rename(cumulative = results) %>% 
+    pivot_longer(c(targets, cumulative), names_to = "targets_results") %>% 
     pivot_wider(names_from = indicator,
                 names_glue = "{tolower(indicator)}") %>% 
-    arrange(psnuuid, period) %>% 
-    group_by(psnuuid) %>% 
-    mutate(tx_curr_lag2 = lag(tx_curr, n =2, by = period), .after = tx_curr) %>% 
-    mutate(fiscal_year = curr_fy, .before =1 ) %>% 
+    arrange(psnuuid, targets_results, age_grp, period) %>% 
+    group_by(psnuuid, targets_results, age_grp) %>% 
+    mutate(tx_curr_lag2 = lag(tx_curr, n = 2), .after = tx_curr) %>% 
+    ungroup() %>% 
+    group_by(fiscal_year) %>% 
     filter(period == max(period)) %>% 
-    select(-c(period_type, period)) 
+    ungroup() %>% 
+    select(-c(period)) %>% 
+    filter_at(vars(starts_with("tx")), any_vars(.!=0))
   
-  df_ovc <- df_msd %>% 
-    filter(fiscal_year == 2021,
-           indicator %in% c("OVC_SERV", "OVC_HIVSTAT", "OVC_HIVSTAT_POS"),
+  df_ovc <- df_genie %>% 
+    filter(indicator %in% c("OVC_SERV", "OVC_HIVSTAT", "OVC_HIVSTAT_POS"),
            standardizeddisaggregate %in% c("Total Numerator", "Age/Sex/DREAMS", 
                                            "Age/Sex/Preventive", "Age/Sex/ProgramStatus", 
                                            "Age/Sex/ProgramStatusCaregiver"),
@@ -83,13 +104,25 @@
                                  str_detect(standardizeddisaggregate, "Total") ~ indicator,
                                  TRUE ~ glue("{indicator}_{standardizeddisaggregate}")))
   
+  lst_ovc_psnus <- df_ovc %>% 
+    filter(fiscal_year == 2021,
+           indicator == "OVC_HIVSTAT",
+           cumulative > 0) %>% 
+    distinct(psnuuid) %>% 
+    pull()
+    
   df_ovc <- df_ovc %>% 
-    group_by(fiscal_year, snu1, psnu, psnuuid, snuprioritization, indicator) %>% 
-    summarise(across(cumulative, sum, na.rm = TRUE)) %>% 
+    filter(indicator != "OVC_SERV") %>% 
+    mutate(age_grp = "all")
+    
+  df_ovc <- df_ovc %>%
+    bind_rows(df_ovc %>% filter(ageasentered != "15-17") %>% mutate(age_grp = "u15")) %>% 
+    group_by(fiscal_year, snu1, psnu, psnuuid, snuprioritization, indicator, age_grp) %>% 
+    summarise(across(c(targets, cumulative), sum, na.rm = TRUE)) %>% 
     ungroup() %>% 
+    pivot_longer(c(targets, cumulative), names_to = "targets_results") %>% 
     pivot_wider(names_from = indicator,
-                names_glue = "{tolower(indicator)}",
-                values_from = cumulative)
+                names_glue = "{tolower(indicator)}")
   
   df_ovc <- df_ovc %>% 
     rowwise() %>% 
@@ -98,14 +131,17 @@
     ungroup() %>% 
     relocate(ovc_serv_comp, .after = ovc_serv)
     
-
   df_subnat <- df_subnat %>% 
     filter(operatingunit == "Tanzania",
-           fiscal_year == 2021,
            indicator %in% c("PLHIV", "POP_EST"),
            standardizeddisaggregate %in% c("Age/Sex", "Age/Sex/HIVStatus"),
            ageasentered %in% age_range) %>% 
-    count(fiscal_year, snu1, psnu,  psnuuid, indicator, wt = targets, name = "value") %>% 
+    mutate(age_grp = "all")
+  
+  
+  df_subnat <- df_subnat %>%
+    bind_rows(df_subnat %>% filter(trendscoarse == "<15") %>% mutate(age_grp = "u15")) %>% 
+    count(fiscal_year, snu1, psnu,  psnuuid, indicator, age_grp, wt = targets, name = "value") %>% 
     pivot_wider(names_from = indicator,
                 names_glue = "{tolower(indicator)}")
   
@@ -114,8 +150,9 @@
 # JOIN --------------------------------------------------------------------
 
   df_join <- df_subnat %>% 
-    full_join(df_tx, by = c("fiscal_year", "snu1", "psnu", "psnuuid")) %>% 
-    left_join(df_ovc, by = c("fiscal_year", "snu1", "psnu", "psnuuid", "snuprioritization"))
+    full_join(df_tx, by = c("fiscal_year", "snu1", "psnu", "psnuuid", "age_grp")) %>% 
+    full_join(df_ovc, by = c("fiscal_year", "snu1", "psnu", "psnuuid", "snuprioritization", "targets_results", "age_grp")) %>% 
+    left_join(df_psnu_agency)
 
 
   df_join <- df_join %>% 
@@ -130,14 +167,17 @@
              str_remove("^[:digit:]{1,} - ") %>% 
              str_remove(": Saturation"),
            snuprioritization = factor(snuprioritization, c("Scale-Up", "Sustained", "Attained")),
-           psnu_ovc = !is.na(ovc_hivstat))
+           psnu_ovc = psnuuid %in% lst_ovc_psnus)
   
 
 # VIZ - PSNU CLASSIFICATIONS ----------------------------------------------
 
 
   df_class <- df_join %>%
-    filter(!is.na(snuprioritization)) %>% 
+    filter(!is.na(snuprioritization),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative") %>% 
     group_by(snuprioritization) %>% 
     summarise(across(c(tx_curr, plhiv), sum, na.rm = TRUE),
               n_psnu = n()) %>% 
@@ -174,9 +214,7 @@
                                  "TX_CURR (<20yo)" = scooter)) +
     labs(x = NULL, y = NULL, fill = NULL,
          title = "MOST A/CLHIV ARE IN COUNCILS CATEGORIZED AS SCALE-UP IN FY21",
-         caption = "Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
+         caption = glue("Source: {source_nat} + {source}")) +
     si_style_ygrid() +
     theme(axis.text.y = element_blank())
   
@@ -189,7 +227,10 @@
 
 
   df_brkdwn <- df_join %>% 
-    filter(!is.na(snuprioritization)) %>% 
+    filter(!is.na(snuprioritization),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative") %>% 
     group_by(snuprioritization) %>% 
     summarise(n_psnu = n(),
               n_psnu_ovc = sum(psnu_ovc)) %>% 
@@ -211,7 +252,10 @@
     pull()
   
   tot_psnus <- df_join %>% 
-    filter(!is.na(snuprioritization)) %>% 
+    filter(!is.na(snuprioritization),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative") %>% 
     nrow()
   
   df_brkdwn %>% 
@@ -222,67 +266,220 @@
     coord_equal() +
     labs(title = glue("OF THE {tot_psnus} TOTAL COUNCILS, <span style = 'color:{golden_sand};'>{tot_non_ovc}</span> ARE <span style = 'color:{golden_sand};'>WITHOUT OVC PROGRAMMING</span>"),
          subtitle = "Most non-OVC councils are categorized as sustained",
-         caption = "Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
+         caption = glue("Source: {source}")) +
     si_style_nolines() +
     theme(axis.text.x = element_blank(),
           axis.text.y = element_blank(),
           plot.title = element_markdown())
     
   si_save("Graphics/FY21Q2_PSNU_class_nonovc.svg")
+  
+  
+  
+  df_xtra <- df_join %>% 
+    filter(!is.na(snuprioritization)) %>% 
+    distinct(snuprioritization) %>% 
+    pmap_dfr(~df_join %>% 
+               filter(snuprioritization != ..1,
+                      fiscal_year == 2021,
+                      age_grp == "all",
+                      targets_results == "cumulative") %>% 
+               select(prevalence_10k, tx_curr, plhiv) %>% 
+               mutate(snuprioritization = ..1))
+  
+  df_join_viz <- df_join %>%
+    filter(!is.na(snuprioritization),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative") %>% 
+    bind_rows(df_xtra) %>% 
+    mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"))
+  
+  
+  df_join_viz %>% 
+    ggplot(aes(plhiv, tx_curr, color = psnu_ovc, size = prevalence_10k)) +
+    geom_point(data = filter(df_join_viz, is.na(psnu_ovc)), alpha = .1) +
+    geom_point(data = filter(df_join_viz, !is.na(psnu_ovc)), alpha = .5) +
+    facet_wrap(~snuprioritization) +
+    scale_y_continuous(labels = comma) +
+    scale_x_continuous(labels = comma) +
+    scale_color_manual(values = c(golden_sand, scooter), na.value = trolley_grey) +
+    labs(x = "PLHIV (<20yo)",
+         y = "TX_CURR (<20yo)",
+         title = "OVC PROGRAMMING ALIGNED BUT NOT ENTERLY DETERMINED BY PRIORITIZATION, TREATMENT VOLUME, OR PLHIV",
+         caption = glue("Source: {source_nat} + {source}"),
+         color = NULL, size = "HIV Prevalence per 10,000 pop (<20yo)") +
+    si_style() +
+    theme(plot.title.position = "plot")
+  
+  si_save("Images/FY21Q2_OVC_plhiv_tx_curr_scatter.png")
+  
+  df_xtra2 <- df_join %>% 
+    filter(!is.na(snuprioritization)) %>% 
+    distinct(snuprioritization, clinical_ip_agency) %>% 
+    pmap_dfr(~df_join %>% 
+               filter(fiscal_year == 2021,
+                      age_grp == "all",
+                      targets_results == "cumulative") %>% 
+               select(prevalence_10k, tx_curr, plhiv) %>% 
+               mutate(snuprioritization = ..1,
+                      clinical_ip_agency = ..2))
+  
+  
+  df_join_viz2 <- df_join %>% 
+    filter(!is.na(snuprioritization),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative") %>% 
+    bind_rows(df_xtra2) %>% 
+    mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"))
+  
+  
+  df_join_viz2 %>% 
+    ggplot(aes(plhiv, tx_curr, color = psnu_ovc, size = prevalence_10k)) +
+    geom_point(data = filter(df_join_viz2, is.na(psnu_ovc)), alpha = .1) +
+    geom_point(data = filter(df_join_viz2, !is.na(psnu_ovc)), alpha = .5) +
+    facet_grid(clinical_ip_agency~snuprioritization, switch = "y") +
+    # scale_y_log10(labels = comma) +
+    # scale_x_log10(labels = comma) +
+    scale_y_continuous(labels = comma) +
+    scale_x_continuous(labels = comma) +
+    scale_color_manual(values = c(golden_sand, scooter), na.value = trolley_grey) +
+    labs(x = "PLHIV (<20yo)",
+         y = "TX_CURR (<20yo)",
+         title = "OVC PROGRAMMING ALIGNED BUT NOT ENTERLY DETERMINED BY PRIORITIZATION, TREATMENT VOLUME, OR PLHIV",
+         color = NULL, size = "HIV Prevalence per 10,000 pop (<20yo)") +
+    si_style() +
+    theme(strip.text.y = element_text(hjust = .5),
+          strip.placement = "outside",
+          plot.title.position = "plot")
+  
+  si_save("Images/FY21Q2_OVC_plhiv_tx_curr_scatter_agency.png")
     
+  
+
+# TX_CURR RANKING ---------------------------------------------------------
+
+  plot_tx_rank <- function(age, fy, targ_res, threshold = 500, export = TRUE){
+  
+    df_tx_rank <- df_join %>%
+      filter(fiscal_year == fy,
+             age_grp == age,
+             targets_results == targ_res) %>% 
+      mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"),
+             psnu_lab = case_when(tx_curr > threshold & psnu_ovc == "No OVC Programming" ~ psnu))
+    
+    n_psnu <- df_tx_rank %>% 
+      filter(tx_curr > threshold,
+             psnu_ovc == "No OVC Programming") %>% 
+      count(psnu_ovc) %>% 
+      pull()
+    
+    age <- df_tx_rank %>% 
+      distinct( age_grp) %>% 
+      mutate(age_grp = if_else(age_grp == "all", "<20y/o", "<15y/o")) %>% 
+      pull()
+    
+    type <- df_tx_rank %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             age_grp = if_else(age_grp == "all", "<20y/o", "<15y/o"),
+             sub = glue("{fiscal_year} {targets_results} TX_CURR {age_grp}")) %>% 
+      pull()
+    
+    
+    v <- df_tx_rank %>% 
+      ggplot(aes(tx_curr, fct_reorder(psnu, tx_curr), fill = psnu_ovc)) +
+      geom_col(width =0.8) +
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE, 
+                      seed = 42, force = 10, hjust = 1, nudge_x = 250,  
+                      family = "Source Sans Pro", color = "#505050", size = 9/.pt, segment.color = "#909090") +
+      scale_x_continuous(label = comma, position = "top") +
+      scale_fill_manual(values = c("OVC Programming" = scooter, "No OVC Programming" = golden_sand)) +
+      labs(title = glue("Of the largest councils where TX_CURR {age} is greater than {threshold} patients, there are {n_psnu} PSNUs without OVC programs") %>% 
+             toupper() %>% str_wrap(95),
+           subtitle = type,
+           x = NULL, y = NULL, fill = NULL,
+           caption = glue("Source: {source}")) +
+      si_style_xgrid() +
+      theme(axis.text.y = element_blank())
+    
+    if(export == TRUE){
+      si_save(glue("Images/FY21Q2_OVC_tx_curr_rank_{fy}_{targ_res}_{age}.png"), v)
+    } else {
+      return(v)
+    }
+  }
+  
+  
+  plot_tx_rank("all", 2021, 'cumulative')
+  plot_tx_rank("all", 2021, 'targets')
+  plot_tx_rank("all", 2022, 'targets')
+  
+  plot_tx_rank("u15", 2021, 'cumulative')
+  plot_tx_rank("u15", 2021, 'targets')
+  plot_tx_rank("u15", 2022, 'targets')
+  
+  
 # VIZ ---------------------------------------------------------------------
 
   
-  nat_cov <- df_join %>% 
-    filter(!is.na(tx_curr),
-           snu1 != "_Military Tanzania") %>% 
-    summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
-    mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
-    pull()
+  # nat_cov <- df_join %>% 
+  #   filter(!is.na(tx_curr),
+  #          fiscal_year == 2021,
+  #          age_grp == "all",
+  #          targets_results == "cumulative",
+  #          snu1 != "_Military Tanzania") %>% 
+  #   summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
+  #   mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
+  #   pull()
   
   #coverage
-  df_join %>% 
-    filter(!is.na(tx_curr),
-           snu1 != "_Military Tanzania") %>% 
-    group_by(snu1) %>% 
-    summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>%
-    pivot_longer(c(tx_curr, ovc_hivstat_pos), 
-                 names_to = "indicator") %>%
-    mutate(indicator = toupper(indicator),
-           alpha_fill = ifelse(indicator == "TX_CURR", .8, 1), 
-           indicator = ifelse(indicator == "TX_CURR", glue("{indicator} (<20yo)"),
-                              glue("{indicator} (<=18yo)"))) %>%
-    group_by(snu1) %>% 
-    mutate(coverage = min(value)/max(value),
-           coverage = case_when(value == max(value) ~ NA_real_,
-                                coverage == 0 ~ NA_real_,
-                                TRUE ~ coverage)) %>% 
-    ungroup() %>% 
-    ggplot(aes(value, fct_reorder(snu1, value, max), fill = indicator, alpha = alpha_fill)) +
-    geom_col(position = "identity") +
-    geom_text(aes(label = percent(coverage, 1)), na.rm = TRUE,
-              hjust = 1.2,
-              family = "Source Sans Pro", size = 8.5/.pt, color = "white") +
-    scale_x_continuous(label = comma, position = "top",
-                       expand = c(.005, .005)) +
-    scale_fill_manual(values = c(scooter, trolley_grey_light)) +
-    scale_alpha_identity() +
-    labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("ACROSS TANZANIA, THERE IS A {percent(nat_cov,1)} COVERAGE RATE OF HIV POSITIVE OVC ON TREATMENT"),
-         caption = "Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
-    si_style_xgrid()
-  
-  si_save("Images/FY21Q2_OVC_coverage_tx_curr.png")
+  # df_join %>% 
+  #   filter(!is.na(tx_curr),
+  #          fiscal_year == 2021,
+  #          age_grp == "all",
+  #          targets_results == "cumulative",
+  #          snu1 != "_Military Tanzania") %>% 
+  #   group_by(snu1) %>% 
+  #   summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>%
+  #   pivot_longer(c(tx_curr, ovc_hivstat_pos), 
+  #                names_to = "indicator") %>%
+  #   mutate(indicator = toupper(indicator),
+  #          alpha_fill = ifelse(indicator == "TX_CURR", .8, 1), 
+  #          indicator = ifelse(indicator == "TX_CURR", glue("{indicator} (<20yo)"),
+  #                             glue("{indicator} (<=18yo)"))) %>%
+  #   group_by(snu1) %>% 
+  #   mutate(coverage = min(value)/max(value),
+  #          coverage = case_when(value == max(value) ~ NA_real_,
+  #                               coverage == 0 ~ NA_real_,
+  #                               TRUE ~ coverage)) %>% 
+  #   ungroup() %>% 
+  #   ggplot(aes(value, fct_reorder(snu1, value, max), fill = indicator, alpha = alpha_fill)) +
+  #   geom_col(position = "identity") +
+  #   geom_text(aes(label = percent(coverage, 1)), na.rm = TRUE,
+  #             hjust = 1.2,
+  #             family = "Source Sans Pro", size = 8.5/.pt, color = "white") +
+  #   scale_x_continuous(label = comma, position = "top",
+  #                      expand = c(.005, .005)) +
+  #   scale_fill_manual(values = c(scooter, trolley_grey_light)) +
+  #   scale_alpha_identity() +
+  #   labs(x = NULL, y = NULL, fill = NULL,
+  #        title = glue("ACROSS TANZANIA, THERE IS A {percent(nat_cov,1)} COVERAGE RATE OF HIV POSITIVE OVC ON TREATMENT"),
+  #        caption = glue("Source: {source}")) +
+  #   si_style_xgrid()
+  # 
+  # si_save("Images/FY21Q2_OVC_coverage_tx_curr.png")
   
   
   n_psnus <- 20
   
   lrg_cov <- df_join %>% 
     filter(!is.na(tx_curr),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative",
            snu1 != "_Military Tanzania") %>% 
     slice_max(order_by = tx_curr, n = n_psnus) %>% 
     summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
@@ -291,6 +488,9 @@
   
   df_join %>% 
     filter(!is.na(tx_curr),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative",
            snu1 != "_Military Tanzania") %>% 
     slice_max(order_by = tx_curr, n = n_psnus) %>% 
     select(psnu, tx_curr, ovc_hivstat_pos, coverage_tx) %>% 
@@ -312,15 +512,17 @@
     scale_alpha_identity() +
     labs(x = NULL, y = NULL, fill = NULL,
          title = glue("ACROSS THE {n_psnus} LARGEST COUNCILS, THERE IS A {percent(lrg_cov,1)} COVERAGE RATE OF HIV+ OVC ON TX"),
-         caption = "Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
-    si_style_xgrid()
+         caption = glue("Source: {source}")) +
+    si_style_xgrid() +
+    theme(plot.title.position = "plot")
   
   si_save("Images/FY21Q2_OVC_coverage_psnu_tx_curr.png")
   
   df_join %>% 
     filter(!is.na(tx_curr),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative",
            snu1 != "_Military Tanzania") %>% 
     mutate(rank = dense_rank(-tx_curr),
            psnu_lab = case_when(rank <= 15 ~ psnu,
@@ -331,17 +533,18 @@
     geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5, color = denim_light) +
     geom_point(aes(size = plhiv, color = snuprioritization), alpha = .4) +
     geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
-                    family = "Source Sans Pro", color = trolley_grey, size = 8/.pt,) +
+                    family = "Source Sans Pro", color = trolley_grey, size = 8/.pt) +
     scale_x_continuous(label = comma) +
     scale_y_continuous(label = comma) +
     scale_size(label = comma) +
-    scale_color_si("scooter", na.value = trolley_grey) +
+    # scale_color_si("scooter", na.value = trolley_grey) +
+    scale_color_manual(values = c("Scale-Up" = scooter,
+                                  "Sustained" = moody_blue,
+                                  "Attained" =  genoa)) +
     labs(x = "TX_CURR (<20yo)", y = "OVC_HIVSTAT_POS (<=18yo)",
          size = "PLHIV", color = NULL,
          title = "COUNCILS WITH LARGER TREATMENTS VOLUMES TEND TO HAVE LESS OVC COVERAGE",
-         caption = "Source: FY21Q2c MSD + NAT_SUBAT
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
+         caption = glue("Source: {source_nat} + {source}")) +
     si_style() 
   
   
