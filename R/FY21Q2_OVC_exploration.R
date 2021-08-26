@@ -3,7 +3,7 @@
 # PURPOSE:  
 # LICENSE:  MIT
 # DATE:     2021-07-15
-# UPDATED:  2022-08-24
+# UPDATED:  2022-08-25
 
 # GENIE META DATA ---------------------------------------------------------
 
@@ -34,16 +34,18 @@
   library(ggrepel)
   library(waffle)
   library(readxl)
+  library(tameDP)
   
 
 # GLOBAL VARIABLES --------------------------------------------------------
 
   genie_path <- "Data/Genie-PSNUByIMs-Tanzania-Daily-2021-08-24.zip"
   reviewfile_path <- "Data/OVC Targeting Review and Alignment - 08.12.2021.xlsx" 
-  age_range <- c("<01", "01-04", "05-09", "10-14", "15-17", "15-19") #"18+"
+  age_range <- c("<01", "01-04", "05-09", "10-14", "15-17", "15-19")
 
   source <- source_info(genie_path) %>% str_replace("p", "i")
   source_nat <- source_info(si_path(), "NAT_SUBNAT")
+  source_dp <- "COP21 Data Pack [PEPFAR TZ DataPack 052121 final.xlsx]"
   
   curr_pd <- source_info(genie_path, return = "period")
   curr_fy <- source_info(genie_path, return = "fiscal_year")
@@ -60,6 +62,8 @@
   df_psnu_agency <- read_excel(reviewfile_path, range = "A2:C194") %>% 
     select(psnu = Council, clinical_ip_agency = `Agency\r\nby Regional Clinical IP`) %>% 
     mutate(psnu = ifelse(psnu == "Military", "_Military Tanzania", psnu))
+  
+  df_plhiv22 <- import_plhiv("../badboys/Data/PEPFAR TZ DataPack 052121 final.xlsx")
   
 # MUNGE -------------------------------------------------------------------
   
@@ -131,7 +135,13 @@
     ungroup() %>% 
     relocate(ovc_serv_comp, .after = ovc_serv)
     
+  df_plhiv22 <- df_plhiv22 %>% 
+    rename(operatingunit = countryname,
+           ageasentered = age) %>% 
+    mutate(standardizeddisaggregate = "Age/Sex")
+  
   df_subnat <- df_subnat %>% 
+    bind_rows(df_plhiv22) %>% 
     filter(operatingunit == "Tanzania",
            indicator %in% c("PLHIV", "POP_EST"),
            standardizeddisaggregate %in% c("Age/Sex", "Age/Sex/HIVStatus"),
@@ -140,7 +150,7 @@
   
   
   df_subnat <- df_subnat %>%
-    bind_rows(df_subnat %>% filter(trendscoarse == "<15") %>% mutate(age_grp = "u15")) %>% 
+    bind_rows(df_subnat %>% filter(ageasentered != "15-19") %>% mutate(age_grp = "u15")) %>% 
     count(fiscal_year, snu1, psnu,  psnuuid, indicator, age_grp, wt = targets, name = "value") %>% 
     pivot_wider(names_from = indicator,
                 names_glue = "{tolower(indicator)}")
@@ -152,15 +162,15 @@
   df_join <- df_subnat %>% 
     full_join(df_tx, by = c("fiscal_year", "snu1", "psnu", "psnuuid", "age_grp")) %>% 
     full_join(df_ovc, by = c("fiscal_year", "snu1", "psnu", "psnuuid", "snuprioritization", "targets_results", "age_grp")) %>% 
-    left_join(df_psnu_agency)
+    left_join(df_psnu_agency, by = c("psnu"))
 
 
   df_join <- df_join %>% 
     mutate(prevalence = plhiv/pop_est,
            prevalence_10k = round(prevalence * 1e4),
-           vlc = tx_pvls_d/tx_curr,
+           vlc = tx_pvls_d/tx_curr_lag2,
            vls = tx_pvls/tx_pvls_d,
-           vls_txcurr = tx_pvls/tx_curr,
+           vls_txcurr = tx_pvls/tx_curr_lag2,
            coverage_tx = ovc_hivstat_pos/tx_curr,
            coverage_plhiv = ovc_hivstat_pos/plhiv,
            snuprioritization = snuprioritization %>% 
@@ -169,6 +179,7 @@
            snuprioritization = factor(snuprioritization, c("Scale-Up", "Sustained", "Attained")),
            psnu_ovc = psnuuid %in% lst_ovc_psnus)
   
+  write_csv(df_join, "Dataout/FY21Q3_TZA_OVC_TDY_data.csv", na = "")
 
 # VIZ - PSNU CLASSIFICATIONS ----------------------------------------------
 
@@ -377,14 +388,14 @@
     
     age <- df_tx_rank %>% 
       distinct( age_grp) %>% 
-      mutate(age_grp = if_else(age_grp == "all", "<20y/o", "<15y/o")) %>% 
+      mutate(age_grp = if_else(age_grp == "all", "<20yo", "<15yo")) %>% 
       pull()
     
     type <- df_tx_rank %>% 
       distinct(fiscal_year, targets_results, age_grp) %>% 
       mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
              targets_results = str_to_title(targets_results),
-             age_grp = if_else(age_grp == "all", "<20y/o", "<15y/o"),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
              sub = glue("{fiscal_year} {targets_results} TX_CURR {age_grp}")) %>% 
       pull()
     
@@ -406,7 +417,9 @@
       theme(axis.text.y = element_blank())
     
     if(export == TRUE){
-      si_save(glue("Images/FY21Q2_OVC_tx_curr_rank_{fy}_{targ_res}_{age}.png"), v)
+      out_file <- glue("FY21Q2_OVC_tx_curr_rank_{fy}_{targ_res}_{str_replace(age,'<','u')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
     } else {
       return(v)
     }
@@ -417,219 +430,390 @@
   plot_tx_rank("all", 2021, 'targets')
   plot_tx_rank("all", 2022, 'targets')
   
-  plot_tx_rank("u15", 2021, 'cumulative')
-  plot_tx_rank("u15", 2021, 'targets')
-  plot_tx_rank("u15", 2022, 'targets')
+  plot_tx_rank("u15", 2021, 'cumulative', threshold = 300)
+  plot_tx_rank("u15", 2021, 'targets', threshold = 300)
+  plot_tx_rank("u15", 2022, 'targets', threshold = 300)
   
-  
-# VIZ ---------------------------------------------------------------------
+
+# VIZ - COVERAGE ----------------------------------------------------------
 
   
-  # nat_cov <- df_join %>% 
+  
+  plot_cov_rate <- function(age, fy, targ_res, n_psnus = NULL, export = TRUE){
+    df_cov_viz <- df_join %>% 
+      select(snu1, psnu, snuprioritization, psnu_ovc, fiscal_year, age_grp, targets_results, ovc_hivstat_pos, tx_curr) %>% 
+      pivot_longer(c(ovc_hivstat_pos, tx_curr), names_to = "indicator", values_drop_na = TRUE) %>% 
+      filter(fiscal_year == {fy},
+             (indicator == "tx_curr" & age_grp == {age}) | (indicator == "ovc_hivstat_pos" & age_grp == "all"),
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania") %>% 
+      mutate(age_grp = {age}) %>% 
+      pivot_wider(names_from = "indicator") %>% 
+      mutate(coverage_tx = ovc_hivstat_pos/tx_curr)
+    
+    if(!is.null(n_psnus))
+      df_cov_viz <- slice_max(df_cov_viz, order_by = tx_curr, n = n_psnus)
+    
+    cov_rate <- df_cov_viz %>% 
+      filter(psnu_ovc == TRUE) %>% 
+      summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
+      mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
+      pull()
+    
+    
+    cov_title_seg <- ifelse(!is.null(n_psnus),
+                            glue("THE {n_psnus} LARGEST COUNCILS"),
+                            glue("COUNCILS WITH OVC PROGRAMMING"))
+    cov_title <- glue("ACROSS {cov_title_seg}, THERE IS A {percent(cov_rate,1)} COVERAGE RATE OF HIV+ OVC ON TX")
+    
+    type <- df_cov_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             sub = glue("{fiscal_year} {targets_results}")) %>% 
+      pull()
+    
+    df_cov_viz <- df_cov_viz %>% 
+      select(psnu, tx_curr, age_grp, ovc_hivstat_pos, coverage_tx) %>%
+      mutate(tx_order = tx_curr) %>% 
+      pivot_longer(c(tx_curr, ovc_hivstat_pos), 
+                   names_to = "indicator") %>%
+      mutate(indicator = toupper(indicator),
+             alpha_fill = ifelse(indicator == "TX_CURR", .8, 1), 
+             coverage_tx = ifelse(indicator == "TX_CURR", NA, coverage_tx),
+             age_grp = case_when(indicator == "OVC_HIVSTAT_POS" ~ "<18",
+                                 age_grp == "u15" ~ "<15",
+                                 TRUE ~ "<20"),
+             indicator = glue("{indicator} ({age_grp})"))
+    
+    v <- df_cov_viz %>%
+      ggplot(aes(value, fct_reorder(psnu, tx_order, max), fill = indicator, alpha = alpha_fill), na.rm = TRUE) +
+      geom_col(position = "identity", width = ifelse(!is.null(n_psnu), 0.9, 0.8), na.rm = TRUE) +
+      geom_errorbar(#data = filter(df_cov_viz, indicator == "TX_CURR"),
+                    aes(xmin = value, xmax = value), color = si_palettes$trolley_greys[1]) +
+      scale_fill_manual(values = c(scooter, trolley_grey_light)) +
+      scale_alpha_identity() +
+      labs(x = NULL, y = NULL, fill = NULL,
+           title = cov_title,
+           subtitle = type,
+           caption = glue("Source: {source}")) +
+      si_style_xgrid() 
+    
+    if(!is.null(n_psnus)){
+      v <- v +
+        geom_text(aes(label = percent(coverage_tx, 1)), na.rm = TRUE,
+                  hjust = 1.2, family = "Source Sans Pro", size = 8.5/.pt, color = "white") +
+        scale_x_continuous(label = comma, position = "top", expand = c(.005, .005)) +
+        theme(plot.title.position = "plot")
+    } else {
+      v <- v +
+        scale_x_continuous(label = comma, position = "top") +
+        theme(axis.text.y = element_blank(), 
+              plot.title.position = "plot")
+    }
+    
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_tx_coverage_{fy}_{targ_res}_{str_replace(age,'<','u')}_{ifelse(is.null(n_psnus), 'natl', 'top')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
+    } else {
+      return(v)
+    }  
+  }
+  
+  
+  plot_cov_rate('all', '2021', 'cumulative', 20)
+  plot_cov_rate('all', '2021', 'cumulative')
+  
+  plot_cov_rate('u15', '2021', 'cumulative', 20)
+  plot_cov_rate('u15', '2021', 'cumulative')
+  
+  
+
+# VIZ - TX VS HIVSTAT_POS -------------------------------------------------
+
+  
+  plot_tx_ovc <- function(age, fy, targ_res, export = TRUE){
+    
+    df_scat_viz <- df_join %>% 
+      select(snu1, psnu, snuprioritization, fiscal_year, age_grp, targets_results, plhiv, ovc_hivstat_pos, tx_curr) %>% 
+      pivot_longer(c(ovc_hivstat_pos, tx_curr, plhiv), names_to = "indicator", values_drop_na = TRUE) %>% 
+      filter(fiscal_year == {fy},
+             (indicator %in% c("tx_curr", "plhiv") & age_grp == {age}) | (indicator == "ovc_hivstat_pos" & age_grp == "all"),
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania") %>% 
+      mutate(age_grp = {age}) %>% 
+      pivot_wider(names_from = "indicator")
+    
+    
+    df_scat_viz <- df_scat_viz %>% 
+      mutate(rank = dense_rank(-tx_curr),
+             psnu_lab = case_when(rank <= 15 ~ psnu,
+                                  #ovc_hivstat_pos > 1000 ~ psnu,
+                                  ovc_hivstat_pos > tx_curr ~ psnu)) 
+    
+    type <- df_scat_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             sub = glue("{fiscal_year} {targets_results}")) %>% 
+      pull()
+    
+    plot_title <- ifelse(age == 'all',
+                         "COUNCILS WITH LARGER TREATMENTS VOLUMES TEND TO HAVE LESS OVC COVERAGE",
+                         "STRONG ALIGNMENT BETWEEN OVC_HIVSTAT_POS AND PEDS TX_CURR"
+                         )
+    v <- df_scat_viz %>% 
+      ggplot(aes(tx_curr, ovc_hivstat_pos)) +
+      geom_blank(aes(ovc_hivstat_pos, tx_curr)) +
+      geom_abline(slope = 1, intercept = 0, color = trolley_grey, linetype = "dashed") +
+      geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5, color = denim_light) +
+      geom_point(aes(size = plhiv, color = snuprioritization), alpha = .4) +
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
+                      family = "Source Sans Pro", color = trolley_grey, size = 8/.pt) +
+      scale_x_continuous(label = comma) +
+      scale_y_continuous(label = comma) +
+      scale_size(label = comma) +
+      scale_color_manual(values = c("Scale-Up" = scooter,
+                                    "Sustained" = moody_blue,
+                                    "Attained" =  genoa)) +
+      labs(x = glue("TX_CURR ({ifelse({age} == 'all', '<20', '<15')})"), 
+           y = "OVC_HIVSTAT_POS (<18 yo)",
+           size = glue("PLHIV ({ifelse({age} == 'all', '<20', '<15')})"),
+           color = NULL,
+           title = plot_title,
+           subtitle = type,
+           caption = glue("Source: {source_nat} + {source}")) +
+      si_style() 
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_coverage_TX_scatter_{fy}_{targ_res}_{str_replace(age,'<','u')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images", width = 8)
+    } else {
+      return(v)
+    }  
+  }
+  
+  
+  plot_tx_ovc('all', 2021, 'cumulative')
+  plot_tx_ovc('u15', 2021, 'cumulative')
+    
+  
+
+# VIZ - PLHIV BURDEN ------------------------------------------------------
+
+  plot_plhiv_rank <- function(age, fy, threshold = 1000, export = TRUE){
+    
+    df_plhiv_rank <- df_join %>%
+      filter(fiscal_year == fy,
+             age_grp == age,
+             targets_results == "targets") %>% 
+      mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"),
+             psnu_lab = case_when(plhiv > threshold & psnu_ovc == "No OVC Programming" ~ psnu))
+    
+    n_psnu <- df_plhiv_rank %>% 
+      filter(plhiv > threshold,
+             psnu_ovc == "No OVC Programming") %>% 
+      count(psnu_ovc) %>% 
+      pull()
+    
+    age <- df_plhiv_rank %>% 
+      distinct( age_grp) %>% 
+      mutate(age_grp = if_else(age_grp == "all", "<20yo", "<15yo")) %>% 
+      pull()
+    
+    type <- df_plhiv_rank %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
+             sub = glue("{fiscal_year} PLHIV {age_grp}")) %>% 
+      pull()
+    
+    src <- ifelse(fy == 2021, glue("Source: {source_nat} + {source}"),
+                  glue("Source: {source_nat} + {source_dp} + {source}"))
+      
+    v <- df_plhiv_rank %>% 
+      ggplot(aes(plhiv, fct_reorder(psnu, plhiv), fill = psnu_ovc)) +
+      geom_col(width =0.8) +
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE, 
+                      seed = 42, force = 10, hjust = 1, nudge_x = 250,  
+                      family = "Source Sans Pro", color = "#505050", size = 9/.pt, segment.color = "#909090") +
+      scale_x_continuous(label = comma, position = "top") +
+      scale_fill_manual(values = c("OVC Programming" = scooter, "No OVC Programming" = golden_sand)) +
+      labs(title = glue("Of the largest councils where C/ALHIV {age} is greater than {comma(threshold, 1)}, there are {n_psnu} PSNUs without OVC programs") %>% 
+             toupper() %>% str_wrap(95),
+           subtitle = type,
+           x = NULL, y = NULL, fill = NULL,
+           caption = src) +
+      si_style_xgrid() +
+      theme(axis.text.y = element_blank())
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_plhiv_rank_{fy}_{str_replace(age,'<','u')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
+    } else {
+      return(v)
+    }
+  }
+  
+  
+  plot_plhiv_rank("all", 2021)
+  plot_plhiv_rank("all", 2022)
+  
+  plot_plhiv_rank("u15", 2021, threshold = 500)
+  plot_plhiv_rank("u15", 2022, threshold = 500)
+  
+  
+###########
+  
+  # n_psnus <- 20
+  # 
+  # lrg_cov <- df_join %>% 
   #   filter(!is.na(tx_curr),
-  #          fiscal_year == 2021,
-  #          age_grp == "all",
-  #          targets_results == "cumulative",
   #          snu1 != "_Military Tanzania") %>% 
+  #   slice_max(order_by = plhiv, n = n_psnus) %>% 
   #   summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
   #   mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
   #   pull()
-  
-  #coverage
-  # df_join %>% 
+  # 
+  # df_join %>%
   #   filter(!is.na(tx_curr),
-  #          fiscal_year == 2021,
-  #          age_grp == "all",
-  #          targets_results == "cumulative",
-  #          snu1 != "_Military Tanzania") %>% 
-  #   group_by(snu1) %>% 
-  #   summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>%
-  #   pivot_longer(c(tx_curr, ovc_hivstat_pos), 
+  #          !is.na(ovc_hivstat_pos),
+  #          snu1 != "_Military Tanzania") %>%
+  #   slice_min(order_by = vls_txcurr, n = n_psnus) %>%
+  #   select(psnu, plhiv, vls_txcurr, tx_curr, tx_pvls, coverage_tx) %>%
+  #   pivot_longer(c(tx_curr, tx_pvls),
   #                names_to = "indicator") %>%
   #   mutate(indicator = toupper(indicator),
-  #          alpha_fill = ifelse(indicator == "TX_CURR", .8, 1), 
-  #          indicator = ifelse(indicator == "TX_CURR", glue("{indicator} (<20yo)"),
-  #                             glue("{indicator} (<=18yo)"))) %>%
-  #   group_by(snu1) %>% 
-  #   mutate(coverage = min(value)/max(value),
-  #          coverage = case_when(value == max(value) ~ NA_real_,
-  #                               coverage == 0 ~ NA_real_,
-  #                               TRUE ~ coverage)) %>% 
-  #   ungroup() %>% 
-  #   ggplot(aes(value, fct_reorder(snu1, value, max), fill = indicator, alpha = alpha_fill)) +
+  #          alpha_fill = ifelse(indicator == "TX_CURR", .8, 1),
+  #          coverage_tx = ifelse(indicator == "TX_CURR", NA, coverage_tx),
+  #          vls_txcurr = ifelse(indicator == "TX_CURR", NA, vls_txcurr),
+  #          indicator = glue("{indicator} (<20yo)"),
+  #          cov_pt = 20) %>%
+  #   ggplot(aes(value, fct_reorder(psnu, value, max), fill = indicator, alpha = alpha_fill)) +
   #   geom_col(position = "identity") +
-  #   geom_text(aes(label = percent(coverage, 1)), na.rm = TRUE,
+  #   geom_text(aes(label = percent(vls_txcurr, 1)), na.rm = TRUE,
   #             hjust = 1.2,
-  #             family = "Source Sans Pro", size = 8.5/.pt, color = "white") +
+  #             family = "Source Sans Pro", size = 7/.pt, color = "white") +
+  #   geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
+  #   geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
+  #             family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
   #   scale_x_continuous(label = comma, position = "top",
   #                      expand = c(.005, .005)) +
-  #   scale_fill_manual(values = c(scooter, trolley_grey_light)) +
+  #   scale_fill_manual(values = c(trolley_grey_light, scooter)) +
   #   scale_alpha_identity() +
   #   labs(x = NULL, y = NULL, fill = NULL,
-  #        title = glue("ACROSS TANZANIA, THERE IS A {percent(nat_cov,1)} COVERAGE RATE OF HIV POSITIVE OVC ON TREATMENT"),
-  #        caption = glue("Source: {source}")) +
+  #        title = glue("ACROSS THE {n_psnus} LARGEST COUNCILS, THERE IS A {percent(lrg_cov,1)} COVERAGE RATE OF HIV POSITIVE OVC ON TX"),
+  #        caption = "Source: FY21Q2c MSD
+  #        SI Analytics: Aaron Chafetz
+  #        US Agency for International Development") +
   #   si_style_xgrid()
-  # 
-  # si_save("Images/FY21Q2_OVC_coverage_tx_curr.png")
+
+# VIZ - PLHIV + COVERAGE --------------------------------------------------
+
   
-  
-  n_psnus <- 20
-  
-  lrg_cov <- df_join %>% 
-    filter(!is.na(tx_curr),
-           fiscal_year == 2021,
-           age_grp == "all",
-           targets_results == "cumulative",
-           snu1 != "_Military Tanzania") %>% 
-    slice_max(order_by = tx_curr, n = n_psnus) %>% 
-    summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
-    mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
-    pull()
-  
-  df_join %>% 
-    filter(!is.na(tx_curr),
-           fiscal_year == 2021,
-           age_grp == "all",
-           targets_results == "cumulative",
-           snu1 != "_Military Tanzania") %>% 
-    slice_max(order_by = tx_curr, n = n_psnus) %>% 
-    select(psnu, tx_curr, ovc_hivstat_pos, coverage_tx) %>% 
-    pivot_longer(c(tx_curr, ovc_hivstat_pos), 
-                 names_to = "indicator") %>%
-    mutate(indicator = toupper(indicator),
-           alpha_fill = ifelse(indicator == "TX_CURR", .8, 1), 
-           coverage_tx = ifelse(indicator == "TX_CURR", NA, coverage_tx),
-           indicator = ifelse(indicator == "TX_CURR", glue("{indicator} (<20yo)"),
-                              glue("{indicator} (<=18yo)"))) %>%
-    ggplot(aes(value, fct_reorder(psnu, value, max), fill = indicator, alpha = alpha_fill)) +
-    geom_col(position = "identity") +
-    geom_text(aes(label = percent(coverage_tx, 1)), na.rm = TRUE,
-              hjust = 1.2,
-              family = "Source Sans Pro", size = 8.5/.pt, color = "white") +
-    scale_x_continuous(label = comma, position = "top",
-                       expand = c(.005, .005)) +
-    scale_fill_manual(values = c(scooter, trolley_grey_light)) +
-    scale_alpha_identity() +
-    labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("ACROSS THE {n_psnus} LARGEST COUNCILS, THERE IS A {percent(lrg_cov,1)} COVERAGE RATE OF HIV+ OVC ON TX"),
-         caption = glue("Source: {source}")) +
-    si_style_xgrid() +
-    theme(plot.title.position = "plot")
-  
-  si_save("Images/FY21Q2_OVC_coverage_psnu_tx_curr.png")
-  
-  df_join %>% 
-    filter(!is.na(tx_curr),
-           fiscal_year == 2021,
-           age_grp == "all",
-           targets_results == "cumulative",
-           snu1 != "_Military Tanzania") %>% 
-    mutate(rank = dense_rank(-tx_curr),
-           psnu_lab = case_when(rank <= 15 ~ psnu,
-                                ovc_hivstat_pos > 1000 ~ psnu)) %>% 
-    ggplot(aes(tx_curr, ovc_hivstat_pos)) +
-    geom_blank(aes(ovc_hivstat_pos, tx_curr)) +
-    geom_abline(slope = 1, intercept = 0, color = trolley_grey, linetype = "dashed") +
-    geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5, color = denim_light) +
-    geom_point(aes(size = plhiv, color = snuprioritization), alpha = .4) +
-    geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
-                    family = "Source Sans Pro", color = trolley_grey, size = 8/.pt) +
-    scale_x_continuous(label = comma) +
-    scale_y_continuous(label = comma) +
-    scale_size(label = comma) +
-    # scale_color_si("scooter", na.value = trolley_grey) +
-    scale_color_manual(values = c("Scale-Up" = scooter,
-                                  "Sustained" = moody_blue,
-                                  "Attained" =  genoa)) +
-    labs(x = "TX_CURR (<20yo)", y = "OVC_HIVSTAT_POS (<=18yo)",
-         size = "PLHIV", color = NULL,
-         title = "COUNCILS WITH LARGER TREATMENTS VOLUMES TEND TO HAVE LESS OVC COVERAGE",
-         caption = glue("Source: {source_nat} + {source}")) +
-    si_style() 
-  
-  
-  si_save("Images/FY21Q2_OVC_coverage_tx_curr_scatter.png",
-          width = 8)
+  plot_cov_plhiv_rate <- function(age, fy, targ_res, n_psnus = NULL, export = TRUE){
+    df_cov_plhiv_viz <- df_join %>% 
+      select(fiscal_year, age_grp, targets_results,
+             snu1, psnu, psnu_ovc, plhiv, ovc_hivstat_pos, tx_curr) %>% 
+      pivot_longer(c(plhiv, ovc_hivstat_pos, tx_curr), names_to = "indicator", values_drop_na = TRUE) %>% 
+      filter(fiscal_year == {fy},
+             (indicator %in% c("tx_curr", "plhiv") & age_grp == {age}) | (indicator == "ovc_hivstat_pos" & age_grp == "all"),
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania") %>% 
+      mutate(age_grp = {age}) %>% 
+      pivot_wider(names_from = "indicator") %>% 
+      mutate(coverage_tx = ovc_hivstat_pos/tx_curr,
+             plhiv_order = plhiv)
     
+    if(!is.null(n_psnus))
+      df_cov_plhiv_viz <- slice_max(df_cov_plhiv_viz, order_by = tx_curr, n = n_psnus)
+    
+    cov_rate <- df_cov_plhiv_viz %>% 
+      filter(psnu_ovc == TRUE) %>% 
+      summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
+      mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
+      pull()
+    
+    
+    cov_title_seg <- ifelse(!is.null(n_psnus),
+                            glue("THE {n_psnus} LARGEST COUNCILS"),
+                            glue("COUNCILS WITH OVC PROGRAMMING"))
+    cov_title <- glue("ACROSS {cov_title_seg}, THERE IS A {percent(cov_rate,1)} COVERAGE RATE OF HIV+ OVC ON TX")
+    
+    type <- df_cov_plhiv_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
+             sub = glue("{fiscal_year} {targets_results} {age_grp}")) %>% 
+      pull()
+    
+    src <- ifelse(fy == 2021, glue("Source: {source_nat} + {source}"),
+                  glue("Source: {source_nat} + {source_dp} + {source}"))
+    
+    df_cov_plhiv_viz <- df_cov_plhiv_viz %>%
+      select(psnu, plhiv, ovc_hivstat_pos, coverage_tx, age_grp, plhiv_order) %>% 
+      pivot_longer(c(plhiv, ovc_hivstat_pos), 
+                   names_to = "indicator") %>%
+      mutate(indicator = toupper(indicator),
+             alpha_fill = ifelse(indicator == "PLHIV", .8, 1), 
+             coverage_tx = ifelse(indicator == "PLHIV", NA, coverage_tx),
+             age_grp = case_when(indicator == "OVC_HIVSTAT_POS" ~ "<18",
+                                 age_grp == "u15" ~ "<15",
+                                 TRUE ~ "<20"),
+             indicator = glue("{indicator} ({age_grp})"),
+             cov_pt = 50)
+    
+    v <- df_cov_plhiv_viz %>% 
+      ggplot(aes(value, fct_reorder(psnu, plhiv_order, max), fill = indicator, alpha = alpha_fill)) +
+      geom_col(position = "identity", width = ifelse(!is.null(n_psnu), 0.9, 0.8), na.rm = TRUE) +
+      scale_fill_manual(values = c(scooter, trolley_grey_light)) +
+      scale_alpha_identity() +
+      labs(x = NULL, y = NULL, fill = NULL,
+           title = cov_title,
+           subtitle = type,
+           caption = src) +
+      si_style_xgrid()
+    
+    if(!is.null(n_psnus)){
+      v <- v +
+        geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
+        geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
+                  family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
+        scale_x_continuous(label = comma, position = "top", expand = c(.005, .005)) +
+        theme(plot.title.position = "plot")
+    } else {
+      v <- v +
+        scale_x_continuous(label = comma, position = "top") +
+        theme(axis.text.y = element_blank(), 
+              plot.title.position = "plot")
+    }
+    
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_tx_coverage_plhiv_{fy}_{targ_res}_{str_replace(age,'<','u')}_{ifelse(is.null(n_psnus), 'natl', 'top')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
+    } else {
+      return(v)
+    } 
+  }
   
   
-  n_psnus <- 20
+  plot_cov_plhiv_rate('all', '2021', 'cumulative', 20)
+  plot_cov_plhiv_rate('all', '2021', 'cumulative')
   
-  lrg_cov <- df_join %>% 
-    filter(!is.na(tx_curr),
-           snu1 != "_Military Tanzania") %>% 
-    slice_max(order_by = plhiv, n = n_psnus) %>% 
-    summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
-    mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
-    pull()
+  plot_cov_plhiv_rate('u15', '2021', 'cumulative', 20)
+  plot_cov_plhiv_rate('u15', '2021', 'cumulative')
   
-  df_join %>%
-    filter(!is.na(tx_curr),
-           !is.na(ovc_hivstat_pos),
-           snu1 != "_Military Tanzania") %>%
-    slice_min(order_by = vls_txcurr, n = n_psnus) %>%
-    select(psnu, plhiv, vls_txcurr, tx_curr, tx_pvls, coverage_tx) %>%
-    pivot_longer(c(tx_curr, tx_pvls),
-                 names_to = "indicator") %>%
-    mutate(indicator = toupper(indicator),
-           alpha_fill = ifelse(indicator == "TX_CURR", .8, 1),
-           coverage_tx = ifelse(indicator == "TX_CURR", NA, coverage_tx),
-           vls_txcurr = ifelse(indicator == "TX_CURR", NA, vls_txcurr),
-           indicator = glue("{indicator} (<20yo)"),
-           cov_pt = 20) %>%
-    ggplot(aes(value, fct_reorder(psnu, value, max), fill = indicator, alpha = alpha_fill)) +
-    geom_col(position = "identity") +
-    geom_text(aes(label = percent(vls_txcurr, 1)), na.rm = TRUE,
-              hjust = 1.2,
-              family = "Source Sans Pro", size = 7/.pt, color = "white") +
-    geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
-    geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
-              family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
-    scale_x_continuous(label = comma, position = "top",
-                       expand = c(.005, .005)) +
-    scale_fill_manual(values = c(trolley_grey_light, scooter)) +
-    scale_alpha_identity() +
-    labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("ACROSS THE {n_psnus} LARGEST COUNCILS, THERE IS A {percent(lrg_cov,1)} COVERAGE RATE OF HIV POSITIVE OVC ON TX"),
-         caption = "Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
-    si_style_xgrid()
   
-  df_join %>% 
-    filter(!is.na(tx_curr),
-           snu1 != "_Military Tanzania") %>% 
-    slice_max(order_by = plhiv, n = n_psnus) %>% 
-    select(psnu, plhiv, ovc_hivstat_pos, coverage_tx) %>% 
-    pivot_longer(c(plhiv, ovc_hivstat_pos), 
-                 names_to = "indicator") %>%
-    mutate(indicator = toupper(indicator),
-           alpha_fill = ifelse(indicator == "PLHIV", .8, 1), 
-           coverage_tx = ifelse(indicator == "PLHIV", NA, coverage_tx),
-           indicator = ifelse(indicator == "PLHIV", glue("{indicator} (<20yo)"),
-                              glue("{indicator} (<=18yo)")),
-           cov_pt = 50) %>%
-    ggplot(aes(value, fct_reorder(psnu, value, max), fill = indicator, alpha = alpha_fill)) +
-    geom_col(position = "identity") +
-    # geom_text(aes(label = percent(coverage_tx, 1)), na.rm = TRUE,
-    #           hjust = 1.2,
-    #           family = "Source Sans Pro", size = 8.5/.pt, color = "white") +
-    geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
-    geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
-              family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
-    scale_x_continuous(label = comma, position = "top",
-                       expand = c(.005, .005)) +
-    scale_fill_manual(values = c(scooter, trolley_grey_light)) +
-    scale_alpha_identity() +
-    labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("ACROSS THE {n_psnus} LARGEST COUNCILS, THERE IS A {percent(lrg_cov,1)} COVERAGE RATE OF HIV+ OVC ON TX"),
-         caption = "Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
-    si_style_xgrid()
-  
-  si_save("Images/FY21Q2_OVC_coverage_plhiv.png")
-  
+
+# VIZ - PREVALENCE V COVERAGE ---------------------------------------------
+
   df_join %>% 
     filter(!is.na(tx_curr),
            snu1 != "_Military Tanzania") %>% 
@@ -661,59 +845,356 @@
           width = 8)
   
   
-  n_psnus <- 20
   
-  low_cov <- df_join %>% 
-    filter(!is.na(tx_curr),
-           !is.na(ovc_hivstat_pos),
-           snu1 != "_Military Tanzania") %>% 
-    slice_min(order_by = vls_txcurr, n = n_psnus) %>% 
-    summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
-    mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
-    pull()
+  plot_plhiv_ovc <- function(age, fy, targ_res, export = TRUE){
+    
+    df_scat_viz <- df_join %>% 
+      select(fiscal_year, age_grp, targets_results,
+             snu1, psnu, snuprioritization, 
+             plhiv, pop_est, ovc_hivstat_pos, tx_curr) %>% 
+      pivot_longer(c(plhiv, pop_est, ovc_hivstat_pos, tx_curr), names_to = "indicator", values_drop_na = TRUE) %>% 
+      filter(fiscal_year == {fy},
+             (indicator %in% c("tx_curr", "plhiv", "pop_est") & age_grp == {age}) | (indicator == "ovc_hivstat_pos" & age_grp == "all"),
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania") %>% 
+      mutate(age_grp = {age}) %>% 
+      pivot_wider(names_from = "indicator")
+    
+    
+    df_scat_viz <- df_scat_viz %>% 
+      mutate(prevalence = plhiv/pop_est,
+             prevalence_10k = round(prevalence * 1e4),
+             coverage_tx = ovc_hivstat_pos/tx_curr,
+             rank = dense_rank(-tx_curr),
+             psnu_lab = case_when(rank <= 15 ~ psnu,
+                                  coverage_tx > 1.2 ~ psnu,
+                                  prevalence_10k > 150 ~ psnu)) 
+    
+    type <- df_scat_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
+             sub = glue("{fiscal_year} {targets_results} {age_grp}")) %>% 
+      pull()
+    
+    plot_title <- ifelse(age == 'all',
+                         "COUNCILS WITH LARGER PREVALENCE TEND TO HAVE LOWER TX COVERAGE OF OVC HIV+",
+                         "COUNCILS WITH LARGER PREVALENCE TEND TO HAVE LOWER TX COVERAGE OF OVC HIV+"
+    )
+    
+    age_txt <- if_else(age == "all", "<20", "<15")
+    src <- ifelse(fy == 2021, glue("Source: {source_nat} + {source}"),
+                  glue("Source: {source_nat} + {source_dp} + {source}"))
+    
+    v <- df_scat_viz %>% 
+      ggplot(aes(prevalence_10k, coverage_tx)) +
+      geom_hline(yintercept = 1, color = trolley_grey) +
+      geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5,
+                  color = denim_light) +
+      geom_point(aes(size = plhiv, color = snuprioritization), alpha = .4) +
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
+                      family = "Source Sans Pro", color = trolley_grey, size = 8/.pt,) +
+      expand_limits(y = 0) +
+      scale_x_continuous(label = comma) +
+      scale_y_continuous(label = percent) +
+      scale_size(label = comma) +
+      scale_color_manual(values = c("Scale-Up" = scooter,
+                                    "Sustained" = moody_blue,
+                                    "Attained" =  genoa)) +
+      labs(x = glue("PLHIV per 10,000 pop ({age_txt})"), 
+           y = glue("OVC Treatment Coverage Rate\nOVC_HIVSTAT_POS (<18) share of TX_CURR ({age_txt})"),
+           size = glue("PLHIV ({age_txt})"), 
+           color = NULL,
+           title = str_wrap(plot_title),
+           subtitle = type,
+           caption = src) +
+      si_style() +
+      theme(plot.title.position = "plot")
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_cov_plhiv_scatter_{fy}_{targ_res}_{str_replace(age,'<','u')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images", width = 8)
+    } else {
+      return(v)
+    }  
+  }
+  
+  
+  
+  plot_plhiv_ovc('all', 2021, 'cumulative')
+  plot_plhiv_ovc('u15', 2021, 'cumulative')
+  
+  
+  
+ 
+# VIZ - COVERAGE + VLC ----------------------------------------------------
+
+  plot_cov_vlc_rate <- function(age, fy, targ_res, n_psnus = NULL, export = TRUE){
+    df_cov_vl_viz <- df_join %>% 
+      filter(!is.na(tx_curr_lag2),
+             !is.na(ovc_hivstat_pos)) %>% 
+      select(fiscal_year, age_grp, targets_results,
+             snu1, psnu, psnu_ovc, 
+             plhiv, tx_pvls_d, tx_pvls, tx_curr_lag2, tx_curr, ovc_hivstat_pos) %>% 
+      pivot_longer(c(plhiv, tx_pvls_d, tx_pvls, tx_curr_lag2, tx_curr, ovc_hivstat_pos), names_to = "indicator", values_drop_na = TRUE) %>% 
+      filter(fiscal_year == {fy},
+             (indicator %in% c("plhiv", "tx_pvls_d", "tx_pvls", "tx_curr_lag2", "tx_curr") & age_grp == {age}) | (indicator == "ovc_hivstat_pos" & age_grp == "all"),
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania") %>% 
+      mutate(age_grp = {age}) %>% 
+      pivot_wider(names_from = "indicator") %>% 
+      mutate(coverage_tx = ovc_hivstat_pos/tx_curr,
+             vlc = tx_pvls_d/tx_curr_lag2,
+             vls = tx_pvls/tx_pvls_d,
+             vls_txcurr = tx_pvls/tx_curr_lag2,
+             plot_order = vlc)
+    
+    if(!is.null(n_psnus))
+      df_cov_vl_viz <- slice_min(df_cov_vl_viz, order_by = vlc, n = n_psnus)
+    
+    # if(!is.null(n_psnus))
+    #   df_cov_vl_viz <- slice_min(df_cov_vl_viz, order_by = vls_txcurr, n = n_psnus)
+    
+    cov_rate <- df_cov_vl_viz %>% 
+      filter(psnu_ovc == TRUE) %>% 
+      summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
+      mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
+      pull()
+    
+    
+    cov_title_seg <- ifelse(!is.null(n_psnus),
+                            glue("THE {n_psnus} LOWEST VLC COUNCILS"),
+                            glue("THE LOWEST VLC COUNCILS WITH OVC PROGRAMMING"))
+    cov_title <- glue("ACROSS {cov_title_seg}, THERE IS A {percent(cov_rate,1)} COVERAGE RATE OF HIV+ OVC ON TX")
+    
+    type <- df_cov_vl_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
+             sub = glue("{fiscal_year} {targets_results} {age_grp}")) %>% 
+      pull()
+    
+    df_cov_vl_viz <- df_cov_vl_viz %>%
+      select(psnu, plhiv, coverage_tx, age_grp, plot_order,
+             vlc, #vls_txcurr
+             tx_pvls_d, tx_curr_lag2) %>% 
+      pivot_longer(c(tx_curr_lag2, tx_pvls_d), 
+                   names_to = "indicator") %>%
+      mutate(indicator = toupper(indicator),
+             alpha_fill = ifelse(indicator == "TX_CURR_LAG2", .8, 1), 
+             coverage_tx = ifelse(indicator == "TX_CURR_LAG2", NA, coverage_tx),
+             vlc = ifelse(indicator == "TX_CURR_LAG2", NA, vlc),
+             # vls_txcurr = ifelse(indicator == "TX_CURR_LAG2", NA, vls_txcurr),
+             indicator = recode(indicator, "TX_CURR_LAG2" = "TX_CURR 2Qs prior"),
+             age_grp = case_when(#indicator == "OVC_HIVSTAT_POS" ~ "<18",
+               age_grp == "u15" ~ "<15",
+               TRUE ~ "<20"),
+             indicator = glue("{indicator} ({age_grp})"),
+             cov_pt = 20)
+    
+    v <- df_cov_vl_viz %>% 
+      ggplot(aes(value, fct_reorder(psnu, plot_order, max, .desc = TRUE), fill = indicator, alpha = alpha_fill)) +
+      geom_col(position = "identity", width = ifelse(!is.null(n_psnu), 0.9, 0.8), na.rm = TRUE) +
+      scale_fill_manual(values = c(trolley_grey_light, scooter)) +
+      scale_alpha_identity() +
+      labs(x = NULL, y = NULL, fill = NULL,
+           title = cov_title,
+           subtitle = type,
+           caption = glue("Source: {source}")) +
+      si_style_xgrid()
+    
+    if(!is.null(n_psnus)){
+      v <- v +
+        geom_text(aes(label = percent(vlc, 1)), na.rm = TRUE, hjust = 1.2,
+                  family = "Source Sans Pro", size = 7/.pt, color = "white") +
+        geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
+        geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
+                  family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
+        scale_x_continuous(label = comma, position = "top", expand = c(.005, .005)) +
+        theme(plot.title.position = "plot")
+    } else {
+      v <- v +
+        scale_x_continuous(label = comma, position = "top") +
+        theme(axis.text.y = element_blank(), 
+              plot.title.position = "plot")
+    }
+    
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_coverage_vlc_{fy}_{targ_res}_{str_replace(age,'<','u')}_{ifelse(is.null(n_psnus), 'natl', 'top')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
+    } else {
+      return(v)
+    } 
+  } 
+  
+ 
+  plot_cov_vlc_rate('all', 2021, 'cumulative', n_psnus = 20)
+  # plot_cov_vlc_rate('u15', 2021, 'cumulative', n_psnus = 20)
+  
+
+# VIZ - COVERAGE + VLS ----------------------------------------------------
+
+  plot_cov_vls_rate <- function(age, fy, targ_res, n_psnus = NULL, export = TRUE){
+    df_cov_vl_viz <- df_join %>% 
+      filter(!is.na(tx_curr_lag2),
+             !is.na(ovc_hivstat_pos)) %>% 
+      select(fiscal_year, age_grp, targets_results,
+             snu1, psnu, psnu_ovc, 
+             plhiv, tx_pvls_d, tx_pvls, tx_curr_lag2, tx_curr, ovc_hivstat_pos) %>% 
+      pivot_longer(c(plhiv, tx_pvls_d, tx_pvls, tx_curr_lag2, tx_curr, ovc_hivstat_pos), names_to = "indicator", values_drop_na = TRUE) %>% 
+      filter(fiscal_year == {fy},
+             (indicator %in% c("plhiv", "tx_pvls_d", "tx_pvls", "tx_curr_lag2", "tx_curr") & age_grp == {age}) | (indicator == "ovc_hivstat_pos" & age_grp == "all"),
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania") %>% 
+      mutate(age_grp = {age}) %>% 
+      pivot_wider(names_from = "indicator") %>% 
+      mutate(coverage_tx = ovc_hivstat_pos/tx_curr,
+             vlc = tx_pvls_d/tx_curr_lag2,
+             vls = tx_pvls/tx_pvls_d,
+             vls_txcurr = tx_pvls/tx_curr_lag2,
+             plot_order = vls_txcurr)
+    
+    if(!is.null(n_psnus))
+      df_cov_vl_viz <- slice_min(df_cov_vl_viz, order_by = vls_txcurr, n = n_psnus)
+    
+    cov_rate <- df_cov_vl_viz %>% 
+      filter(psnu_ovc == TRUE) %>% 
+      summarise(across(c(tx_curr, ovc_hivstat_pos), sum, na.rm = TRUE), .groups = "drop") %>% 
+      mutate(coverage = ovc_hivstat_pos/tx_curr) %>% 
+      pull()
+    
+    
+    cov_title_seg <- ifelse(!is.null(n_psnus),
+                            glue("THE {n_psnus} LOWEST VLS COUNCILS"),
+                            glue("THE LOWEST VLS COUNCILS WITH OVC PROGRAMMING"))
+    cov_title <- glue("ACROSS {cov_title_seg}, THERE IS A {percent(cov_rate,1)} COVERAGE RATE OF HIV+ OVC ON TX")
+    
+    type <- df_cov_vl_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
+             sub = glue("{fiscal_year} {targets_results} {age_grp}")) %>% 
+      pull()
+    
+    df_cov_vl_viz <- df_cov_vl_viz %>%
+      select(psnu, plhiv, coverage_tx, age_grp, plot_order,
+             vls_txcurr, #vlc
+             tx_pvls, tx_curr_lag2, vls_txcurr) %>% 
+      pivot_longer(c(tx_curr_lag2, tx_pvls), 
+                   names_to = "indicator") %>%
+      mutate(indicator = toupper(indicator),
+             alpha_fill = ifelse(indicator == "TX_CURR_LAG2", .8, 1), 
+             coverage_tx = ifelse(indicator == "TX_CURR_LAG2", NA, coverage_tx),
+             # vlc = ifelse(indicator == "TX_CURR_LAG2", NA, vlc),
+             vls_txcurr = ifelse(indicator == "TX_CURR_LAG2", NA, vls_txcurr),
+             indicator = recode(indicator, "TX_CURR_LAG2" = "TX_CURR 2Qs prior"),
+             age_grp = case_when(#indicator == "OVC_HIVSTAT_POS" ~ "<18",
+               age_grp == "u15" ~ "<15",
+               TRUE ~ "<20"),
+             indicator = glue("{indicator} ({age_grp})"),
+             cov_pt = 20)
+    
+    v <- df_cov_vl_viz %>% 
+      ggplot(aes(value, fct_reorder(psnu, plot_order, max, .desc = TRUE), fill = indicator, alpha = alpha_fill)) +
+      geom_col(position = "identity", width = ifelse(!is.null(n_psnu), 0.9, 0.8), na.rm = TRUE) +
+      scale_fill_manual(values = c(trolley_grey_light, scooter)) +
+      scale_alpha_identity() +
+      labs(x = NULL, y = NULL, fill = NULL,
+           title = cov_title,
+           subtitle = type,
+           caption = glue("Source: {source}")) +
+      si_style_xgrid()
+    
+    if(!is.null(n_psnus)){
+      v <- v +
+        geom_text(aes(label = percent(vls_txcurr, 1)), na.rm = TRUE, hjust = 1.2,
+                  family = "Source Sans Pro", size = 7/.pt, color = "white") +
+        geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
+        geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
+                  family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
+        scale_x_continuous(label = comma, position = "top", expand = c(.005, .005)) +
+        theme(plot.title.position = "plot")
+    } else {
+      v <- v +
+        scale_x_continuous(label = comma, position = "top") +
+        theme(axis.text.y = element_blank(), 
+              plot.title.position = "plot")
+    }
+    
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_coverage_vls_{fy}_{targ_res}_{str_replace(age,'<','u')}_{ifelse(is.null(n_psnus), 'natl', 'top')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
+    } else {
+      return(v)
+    } 
+  }  
+  
+  
+  plot_cov_vls_rate('all', 2021, 'cumulative', n_psnus = 20)
+  # plot_cov_vls_rate('u15', 2021, 'cumulative', n_psnus = 20)
+  
+  
+  
+  
   
   df_join %>% 
     filter(!is.na(tx_curr),
-           !is.na(ovc_hivstat_pos),
-           snu1 != "_Military Tanzania") %>% 
-    slice_min(order_by = vls_txcurr, n = n_psnus) %>% 
-    select(psnu, plhiv, vls_txcurr, tx_curr, tx_pvls, coverage_tx) %>% 
-    pivot_longer(c(tx_curr, tx_pvls), 
-                 names_to = "indicator") %>%
-    mutate(indicator = toupper(indicator),
-           alpha_fill = ifelse(indicator == "TX_CURR", .8, 1), 
-           coverage_tx = ifelse(indicator == "TX_CURR", NA, coverage_tx),
-           vls_txcurr = ifelse(indicator == "TX_CURR", NA, vls_txcurr),
-           indicator = glue("{indicator} (<20yo)"), 
-           cov_pt = 20) %>%
-    ggplot(aes(value, fct_reorder(psnu, value, max), fill = indicator, alpha = alpha_fill)) +
-    geom_col(position = "identity") +
-    geom_text(aes(label = percent(vls_txcurr, 1)), na.rm = TRUE,
-              hjust = 1.2,
-              family = "Source Sans Pro", size = 7/.pt, color = "white") +
-    geom_point(aes(cov_pt), size = 5, color = burnt_sienna_light, show.legend = FALSE) +
-    geom_text(aes(cov_pt, label = percent(coverage_tx, 1)), na.rm = TRUE,
-              family = "Source Sans Pro", size = 6/.pt, color = "#202020") +
-    scale_x_continuous(label = comma, position = "top",
-                       expand = c(.005, .005)) +
-    scale_fill_manual(values = c(trolley_grey_light, scooter)) +
-    scale_alpha_identity() +
-    labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("ACROSS THE {n_psnus} COUNCILS WITH THE LOWEST VLS, THERE IS A {percent(low_cov,1)} COVERAGE RATE OF HIV+ OVC ON TX"),
-         caption = "Note: VLC = TX_PVLS/TX_CURR; Source: FY21Q2c MSD
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
-    si_style_xgrid()
-  
-  si_save("Images/FY21Q2_OVC_coverage_vls.png")
-  
-  df_join %>% 
-    filter(!is.na(tx_curr),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative",
            snu1 != "_Military Tanzania") %>% 
     mutate(rank = dense_rank(-tx_curr),
-           psnu_lab = case_when(rank <= 15 ~ psnu,
+           psnu_lab = case_when(rank <= 5 ~ psnu,
+                                vlc < .72 ~ psnu,
+                                coverage_tx > 1.2 ~ psnu)) %>%
+    ggplot(aes(vlc, coverage_tx)) +
+    # geom_blank(aes(coverage_tx, vlc)) +
+    geom_hline(yintercept = 1, color = trolley_grey) +
+    geom_vline(xintercept = 1, color = trolley_grey) +
+    geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5,
+                color = denim_light) +
+    geom_point(aes(size = plhiv, color = snuprioritization), alpha = .4) +
+    geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
+                    family = "Source Sans Pro", color = trolley_grey, size = 8/.pt,) +
+    expand_limits(y = 0, x = 0) +
+    scale_x_continuous(label = percent, breaks = seq(0, 2, .25)) +
+    scale_y_continuous(label = percent, breaks = seq(0, 2, .25)) +
+    scale_size(label = comma) +
+    scale_color_manual(values = c("Scale-Up" = scooter,
+                                  "Sustained" = moody_blue,
+                                  "Attained" =  genoa)) +
+    labs(x = "% Treatment 2 Quarters Prior with a VL Test (<20)", 
+         y = glue("OVC Treatment Coverage Rate\nOVC_HIVSTAT_POS (<18) share of TX_CURR (<20)"),
+         size = "PLHIV (<20)", color = NULL,
+         title = "NO STRONG RELATIONSHIP BETWEEN VLC AND LOWER OVC TX COVERAGE",
+         subtitle = "FY21 Cumulative <20yo",
+         caption = glue("Source: {source}")) +
+    si_style()
+  
+  si_save("Images/FY21Q2_OVC_coverage_vlc_scatter.png",
+          width = 8)
+  
+  
+  df_join %>% 
+    filter(!is.na(tx_curr),
+           fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "cumulative",
+           snu1 != "_Military Tanzania") %>% 
+    mutate(rank = dense_rank(-tx_curr),
+           psnu_lab = case_when(rank <= 5 ~ psnu,
+                                vls_txcurr < .6 ~ psnu,
                                 coverage_tx > 1.2 ~ psnu)) %>%
     ggplot(aes(vls_txcurr, coverage_tx)) +
+    # geom_blank(aes(coverage_tx, vls_txcurr)) +
     geom_hline(yintercept = 1, color = trolley_grey) +
     geom_vline(xintercept = .95^3, color = trolley_grey, linetype = "dashed") +
     geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5,
@@ -722,18 +1203,21 @@
     geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
                     family = "Source Sans Pro", color = trolley_grey, size = 8/.pt,) +
     expand_limits(y = 0, x = 0) +
-    scale_x_continuous(label = percent) +
-    scale_y_continuous(label = percent) +
+    scale_x_continuous(label = percent, breaks = c(0, .25, .5, .75, .95^3, 1, 1.25, 1.5, 1.75, 2)) +
+    scale_y_continuous(label = percent, breaks = seq(0, 2, .25)) +
     scale_size(label = comma) +
-    scale_color_si("scooter", na.value = trolley_grey) +
-    labs(x = "VL Suppression Rate of those on Treatment (<20yo)", y = "OVC_HIVSTAT_POS (<=18yo) share of TX_CURR (<20yo)",
-         size = "PLHIV", color = NULL,
+    scale_color_manual(values = c("Scale-Up" = scooter,
+                                  "Sustained" = moody_blue,
+                                  "Attained" =  genoa)) +
+    labs(x = "% VL Suppressed of those on Treatment 2 Quarters Prior (<20)", 
+         y = glue("OVC Treatment Coverage Rate\nOVC_HIVSTAT_POS (<18) share of TX_CURR (<20)"),
+         size = "PLHIV (<20)", color = NULL,
          title = "NO STRONG RELATIONSHIP BETWEEN VLS AND LOWER OVC TX COVERAGE",
-         caption = "Note: VLC = TX_PVLS/TX_CURR;  Source: FY21Q2c MSD + NAT_SUBAT
-         SI Analytics: Aaron Chafetz
-         US Agency for International Development") +
+         subtitle = "FY21 Cumulative <20 yo",
+         caption = glue("Source: {source}")) +
     si_style()
   
   si_save("Images/FY21Q2_OVC_coverage_vls_scatter.png",
           width = 8)
+  
   
