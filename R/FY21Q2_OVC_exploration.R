@@ -3,7 +3,7 @@
 # PURPOSE:  
 # LICENSE:  MIT
 # DATE:     2021-07-15
-# UPDATED:  2022-08-25
+# UPDATED:  2022-08-26
 
 # GENIE META DATA ---------------------------------------------------------
 
@@ -133,7 +133,8 @@
     mutate(ovc_serv = sum(ovc_serv_active, ovc_serv_graduated, ovc_serv_preventive, ovc_serv_dreams, na.rm = TRUE),
            ovc_serv_comp = sum(ovc_serv_active, ovc_serv_graduated, na.rm = TRUE)) %>% 
     ungroup() %>% 
-    relocate(ovc_serv_comp, .after = ovc_serv)
+    relocate(ovc_serv_comp, .after = ovc_serv) %>% 
+    mutate(ovc_serv = ifelse(ovc_serv == 0, NA, ovc_serv))
     
   df_plhiv22 <- df_plhiv22 %>% 
     rename(operatingunit = countryname,
@@ -177,12 +178,14 @@
              str_remove("^[:digit:]{1,} - ") %>% 
              str_remove(": Saturation"),
            snuprioritization = factor(snuprioritization, c("Scale-Up", "Sustained", "Attained")),
-           psnu_ovc = psnuuid %in% lst_ovc_psnus)
+           # psnu_ovc = psnuuid %in% lst_ovc_psnus)
+           psnu_ovc = !is.na(ovc_serv))
   
   write_csv(df_join, "Dataout/FY21Q3_TZA_OVC_TDY_data.csv", na = "")
 
 # VIZ - PSNU CLASSIFICATIONS ----------------------------------------------
 
+  df_join <- read_csv("Dataout/FY21Q3_TZA_OVC_TDY_data.csv")
 
   df_class <- df_join %>%
     filter(!is.na(snuprioritization),
@@ -286,44 +289,67 @@
   si_save("Graphics/FY21Q2_PSNU_class_nonovc.svg")
   
   
-  
-  df_xtra <- df_join %>% 
-    filter(!is.na(snuprioritization)) %>% 
-    distinct(snuprioritization) %>% 
-    pmap_dfr(~df_join %>% 
-               filter(snuprioritization != ..1,
-                      fiscal_year == 2021,
-                      age_grp == "all",
-                      targets_results == "cumulative") %>% 
-               select(prevalence_10k, tx_curr, plhiv) %>% 
-               mutate(snuprioritization = ..1))
-  
-  df_join_viz <- df_join %>%
-    filter(!is.na(snuprioritization),
-           fiscal_year == 2021,
-           age_grp == "all",
-           targets_results == "cumulative") %>% 
-    bind_rows(df_xtra) %>% 
-    mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"))
-  
-  
-  df_join_viz %>% 
-    ggplot(aes(plhiv, tx_curr, color = psnu_ovc, size = prevalence_10k)) +
-    geom_point(data = filter(df_join_viz, is.na(psnu_ovc)), alpha = .1) +
-    geom_point(data = filter(df_join_viz, !is.na(psnu_ovc)), alpha = .5) +
-    facet_wrap(~snuprioritization) +
-    scale_y_continuous(labels = comma) +
-    scale_x_continuous(labels = comma) +
-    scale_color_manual(values = c(golden_sand, scooter), na.value = trolley_grey) +
-    labs(x = "PLHIV (<20yo)",
-         y = "TX_CURR (<20yo)",
-         title = "OVC PROGRAMMING ALIGNED BUT NOT ENTERLY DETERMINED BY PRIORITIZATION, TREATMENT VOLUME, OR PLHIV",
-         caption = glue("Source: {source_nat} + {source}"),
-         color = NULL, size = "HIV Prevalence per 10,000 pop (<20yo)") +
-    si_style() +
-    theme(plot.title.position = "plot")
-  
-  si_save("Images/FY21Q2_OVC_plhiv_tx_curr_scatter.png")
+
+# VIZ - PLHIV v TX_CURR ---------------------------------------------------
+
+  plot_plhiv_tx <- function(age, fy, targ_res, export = TRUE){
+    
+    df_join_viz <- df_join %>%
+      filter(!is.na(snuprioritization),
+             fiscal_year == {fy},
+             age_grp == {age},
+             targets_results == {targ_res})
+    
+    df_xtra <- df_join_viz %>% 
+      filter(!is.na(snuprioritization)) %>% 
+      distinct(snuprioritization) %>% 
+      pmap_dfr(~df_join_viz %>% 
+                 filter(snuprioritization != ..1) %>% 
+                 select(prevalence_10k, tx_curr, plhiv) %>% 
+                 mutate(snuprioritization = ..1))
+    
+    df_join_viz <- df_join_viz %>% 
+      bind_rows(df_xtra) %>% 
+      mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"))
+    
+    type <- df_join_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
+             sub = glue("{fiscal_year} {targets_results} {age_grp}")) %>% 
+      pull()
+    
+    v <- df_join_viz %>% 
+      ggplot(aes(plhiv, tx_curr, color = psnu_ovc, size = prevalence_10k)) +
+      geom_point(data = filter(df_join_viz, is.na(psnu_ovc)), alpha = .1) +
+      geom_point(data = filter(df_join_viz, !is.na(psnu_ovc)), alpha = .5) +
+      facet_wrap(~snuprioritization) +
+      scale_y_continuous(labels = comma) +
+      scale_x_continuous(labels = comma) +
+      scale_color_manual(values = c(golden_sand, scooter), na.value = trolley_grey) +
+      labs(x = "PLHIV (<20yo)",
+           y = "TX_CURR (<20yo)",
+           title = "OVC PROGRAMMING ALIGNED BUT NOT ENTERLY DETERMINED BY PRIORITIZATION, TREATMENT VOLUME, OR PLHIV",
+           subtitle = type,
+           caption = glue("Source: {source_nat} + {source}"),
+           color = NULL, size = "HIV Prevalence per 10,000 pop (<20yo)") +
+      si_style() +
+      theme(plot.title.position = "plot")
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_plhiv_txcurr_scatter_{fy}_{targ_res}_{str_replace(age,'<','u')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images")
+    } else {
+      return(v)
+    }
+
+  }
+    
+ plot_plhiv_tx("all", 2021, "cumulative")
+ plot_plhiv_tx("all", 2021, "targets")
+ plot_plhiv_tx("all", 2022, "targets")
   
   df_xtra2 <- df_join %>% 
     filter(!is.na(snuprioritization)) %>% 
@@ -430,9 +456,9 @@
   plot_tx_rank("all", 2021, 'targets')
   plot_tx_rank("all", 2022, 'targets')
   
-  plot_tx_rank("u15", 2021, 'cumulative', threshold = 300)
-  plot_tx_rank("u15", 2021, 'targets', threshold = 300)
-  plot_tx_rank("u15", 2022, 'targets', threshold = 300)
+  plot_tx_rank("u15", 2021, 'cumulative')
+  plot_tx_rank("u15", 2021, 'targets')
+  plot_tx_rank("u15", 2022, 'targets')
   
 
 # VIZ - COVERAGE ----------------------------------------------------------
@@ -601,6 +627,72 @@
   plot_tx_ovc('u15', 2021, 'cumulative')
     
   
+# VIZ - TX VS OVC_SERV -------------------------------------------------
+  
+  
+  plot_tx_ovcserv <- function(age, fy, targ_res, export = TRUE){
+    
+    df_scat_viz <- df_join %>% 
+      filter(fiscal_year == {fy},
+             age_grp == {age},
+             targets_results == {targ_res},
+             snu1 != "_Military Tanzania")
+    
+    
+    df_scat_viz <- df_scat_viz %>% 
+      mutate(rank = dense_rank(-tx_curr),
+             psnu_lab = case_when(rank <= 15 ~ psnu))
+                                  #ovc_serv > 1000 ~ psnu,
+                                  #ovc_serv > tx_curr ~ psnu)) 
+    
+    type <- df_scat_viz %>% 
+      distinct(fiscal_year, targets_results, age_grp) %>% 
+      mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
+             targets_results = str_to_title(targets_results),
+             sub = glue("{fiscal_year} {targets_results}")) %>% 
+      pull()
+    
+    plot_title <-  "STRONG ALIGNMENT BETWEEN OVC_SERV AND TX_CURR TARGETS"
+    
+    v <- df_scat_viz %>% 
+      ggplot(aes(tx_curr, ovc_serv)) +
+      # geom_blank(aes(ovc_serv, tx_curr)) +
+      # geom_abline(slope = 1, intercept = 0, color = trolley_grey, linetype = "dashed") +
+      geom_smooth(aes(weight = plhiv), method = "lm", se = FALSE, alpha = .5, color = denim_light) +
+      geom_point(aes(size = plhiv, color = snuprioritization), alpha = .4) +
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE,
+                      family = "Source Sans Pro", color = trolley_grey, size = 8/.pt) +
+      scale_x_continuous(label = comma) +
+      scale_y_continuous(label = comma) +
+      scale_size(label = comma) +
+      scale_color_manual(values = c("Scale-Up" = scooter,
+                                    "Sustained" = moody_blue,
+                                    "Attained" =  genoa)) +
+      labs(x = glue("TX_CURR ({ifelse({age} == 'all', '<20', '<15')})"), 
+           y = glue("OVC_SERV ({ifelse({age} == 'all', '<18', '<15')})"),
+           size = glue("PLHIV ({ifelse({age} == 'all', '<20', '<15')})"),
+           color = NULL,
+           title = plot_title,
+           subtitle = type,
+           caption = glue("Source: {source_nat} + {source}")) +
+      si_style() +
+      theme(plot.title.position = "plot")
+    
+    if(export == TRUE){
+      out_file <- glue("FY21Q2_OVC_ovcserv_TX_scatter_{fy}_{targ_res}_{str_replace(age,'<','u')}.png")
+      print(out_file)
+      si_save(out_file, path = "Images", width = 8)
+    } else {
+      return(v)
+    }  
+  }
+  
+  
+  # plot_tx_ovcserv('all', 2021, 'cumulative', FALSE)
+  plot_tx_ovcserv('all', 2021, 'targets')
+  plot_tx_ovcserv('all', 2022, 'targets')
+  
+  
 
 # VIZ - PLHIV BURDEN ------------------------------------------------------
 
@@ -666,7 +758,8 @@
   plot_plhiv_rank("u15", 2021, threshold = 500)
   plot_plhiv_rank("u15", 2022, threshold = 500)
   
-  
+ 
+   
 ###########
   
   # n_psnus <- 20
