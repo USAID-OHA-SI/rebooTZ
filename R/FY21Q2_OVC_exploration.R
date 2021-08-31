@@ -3,7 +3,7 @@
 # PURPOSE:  
 # LICENSE:  MIT
 # DATE:     2021-07-15
-# UPDATED:  2022-08-30
+# UPDATED:  2022-08-31
 
 # GENIE META DATA ---------------------------------------------------------
 
@@ -402,6 +402,49 @@
     
   
 
+# VIZ - TX/PLHIV DISTRO ---------------------------------------------------
+
+  df_hist_viz <- df_join %>% 
+    filter(fiscal_year >= 2021, 
+           !is.na(targets_results)) %>% 
+    select(fiscal_year, age_grp, targets_results, plhiv, tx_curr) %>% 
+    pivot_longer(c(plhiv, tx_curr), names_to = "indicator") %>% 
+    mutate(indicator = toupper(indicator),
+           age_grp = ifelse(age_grp =="all", "<20", "<15"),
+           targets_results = ifelse(targets_results == "targets", "Targets", "Q2 Results"),
+           fiscal_year = glue("FY{str_sub(fiscal_year, 3)}")) %>% 
+    unite(yr_type, c(fiscal_year, targets_results), sep = " ") %>% 
+    filter(!is.na(value),
+           !(indicator == "PLHIV" & yr_type == "FY21 Q2 Results"))
+  
+  df_median <- df_hist_viz %>% 
+    group_by(indicator, yr_type, age_grp) %>% 
+    summarise(median =  median(value, na.rm = TRUE), .groups = "drop") %>% 
+    filter(!is.na(median))
+  
+  
+  df_hist_viz %>% 
+    ggplot(aes(value, fct_rev(age_grp))) +
+    geom_boxplot(fill = NA, outlier.shape = NA, color = trolley_grey) +
+    geom_point(position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+               alpha = .1, size = 3, color = genoa_light) +
+    geom_label(data = df_median, 
+               aes(median, fct_rev(age_grp), label = comma(median, 1)),
+               family = "Source Sans Pro", color = "#505050", size = 10/.pt,
+               vjust = 2.5, label.size = 0) +
+    facet_grid(indicator~yr_type, switch = "y") +
+    scale_x_continuous(label = comma) +
+    labs(x = NULL, y = NULL,
+         title = "COUNCIL DISTRIBUTION TO DETERMINE THRESHOLDS",
+         subtitle = "Median council values for PLHIV and TX_CURR results/targets displayed",
+         caption = glue("Source: {source_nat} + {source_dp} + {source}")) +
+    si_style_xgrid() +
+    theme(strip.placement = "outside",
+          strip.text.y = element_text(hjust = .5))
+  
+  si_save("Images/FY21Q2_OVC_tx_plhiv_council_distro.png")
+  
+  
 # TX_CURR RANKING ---------------------------------------------------------
 
   plot_tx_rank <- function(age, fy, targ_res, threshold = 500, export = TRUE){
