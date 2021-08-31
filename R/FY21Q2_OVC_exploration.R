@@ -3,7 +3,7 @@
 # PURPOSE:  
 # LICENSE:  MIT
 # DATE:     2021-07-15
-# UPDATED:  2022-08-26
+# UPDATED:  2022-08-30
 
 # GENIE META DATA ---------------------------------------------------------
 
@@ -50,6 +50,8 @@
   curr_pd <- source_info(genie_path, return = "period")
   curr_fy <- source_info(genie_path, return = "fiscal_year")
   
+  max_pd_tx <- "FY21Q2"
+  
 # IMPORT ------------------------------------------------------------------
   
   #PSNUxIM Genie w/ FY22 targets  
@@ -89,8 +91,9 @@
     group_by(psnuuid, targets_results, age_grp) %>% 
     mutate(tx_curr_lag2 = lag(tx_curr, n = 2), .after = tx_curr) %>% 
     ungroup() %>% 
+    filter(period != max_pd_tx) %>% 
     group_by(fiscal_year) %>% 
-    filter(period == max(period)) %>% 
+    filter(period == max(period)) %>%
     ungroup() %>% 
     select(-c(period)) %>% 
     filter_at(vars(starts_with("tx")), any_vars(.!=0))
@@ -108,12 +111,12 @@
                                  str_detect(standardizeddisaggregate, "Total") ~ indicator,
                                  TRUE ~ glue("{indicator}_{standardizeddisaggregate}")))
   
-  lst_ovc_psnus <- df_ovc %>% 
-    filter(fiscal_year == 2021,
-           indicator == "OVC_HIVSTAT",
-           cumulative > 0) %>% 
-    distinct(psnuuid) %>% 
-    pull()
+  # lst_ovc_psnus <- df_ovc %>% 
+  #   filter(fiscal_year == 2021,
+  #          indicator == "OVC_HIVSTAT",
+  #          cumulative > 0) %>% 
+  #   distinct(psnuuid) %>% 
+  #   pull()
     
   df_ovc <- df_ovc %>% 
     filter(indicator != "OVC_SERV") %>% 
@@ -181,11 +184,14 @@
            # psnu_ovc = psnuuid %in% lst_ovc_psnus)
            psnu_ovc = !is.na(ovc_serv))
   
-  write_csv(df_join, "Dataout/FY21Q3_TZA_OVC_TDY_data.csv", na = "")
+  write_csv(df_join, glue("Dataout/{max_pd_tx}_TZA_OVC_TDY_data.csv", na = ""))
 
+
+# READ IN FROM HERE -------------------------------------------------------
+
+  df_join <- read_csv(glue("Dataout/{max_pd_tx}_TZA_OVC_TDY_data.csv"))
+  
 # VIZ - PSNU CLASSIFICATIONS ----------------------------------------------
-
-  df_join <- read_csv("Dataout/FY21Q3_TZA_OVC_TDY_data.csv")
 
   df_class <- df_join %>%
     filter(!is.na(snuprioritization),
@@ -315,7 +321,7 @@
     type <- df_join_viz %>% 
       distinct(fiscal_year, targets_results, age_grp) %>% 
       mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
-             targets_results = str_to_title(targets_results),
+             targets_results = ifelse(targets_results == "targets", "Targets", "Q2 Results"),
              age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
              sub = glue("{fiscal_year} {targets_results} {age_grp}")) %>% 
       pull()
@@ -332,7 +338,8 @@
            y = "TX_CURR (<20yo)",
            title = "OVC PROGRAMMING ALIGNED BUT NOT ENTERLY DETERMINED BY PRIORITIZATION, TREATMENT VOLUME, OR PLHIV",
            subtitle = type,
-           caption = glue("Source: {source_nat} + {source}"),
+           caption = glue("A council is defined as having 'OVC programming' if it has OVC_SERV {ifelse(targ_res == 'targets', 'targets', 'results')} in FY{str_sub(fy, 3)}
+                          Source: {source_nat} + {source}"),
            color = NULL, size = "HIV Prevalence per 10,000 pop (<20yo)") +
       si_style() +
       theme(plot.title.position = "plot")
@@ -412,6 +419,9 @@
       count(psnu_ovc) %>% 
       pull()
     
+    if(length(n_psnu) == 0)
+      n_psnu <- "no"
+    
     age <- df_tx_rank %>% 
       distinct( age_grp) %>% 
       mutate(age_grp = if_else(age_grp == "all", "<20yo", "<15yo")) %>% 
@@ -420,7 +430,7 @@
     type <- df_tx_rank %>% 
       distinct(fiscal_year, targets_results, age_grp) %>% 
       mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
-             targets_results = str_to_title(targets_results),
+             targets_results = ifelse(targets_results == "targets", "Targets", "Q2 Results"),
              age_grp = if_else(age_grp == "all", "<20yo", "<15yo"),
              sub = glue("{fiscal_year} {targets_results} TX_CURR {age_grp}")) %>% 
       pull()
@@ -434,11 +444,12 @@
                       family = "Source Sans Pro", color = "#505050", size = 9/.pt, segment.color = "#909090") +
       scale_x_continuous(label = comma, position = "top") +
       scale_fill_manual(values = c("OVC Programming" = scooter, "No OVC Programming" = golden_sand)) +
-      labs(title = glue("Of the largest councils where TX_CURR {age} is greater than {threshold} patients, there are {n_psnu} PSNUs without OVC programs") %>% 
+      labs(title = glue("Of the largest councils in FY{str_sub(fy, 3)} where TX_CURR {age} {ifelse(targ_res == 'targets', 'targets', 'results')} are greater than {threshold} patients, there are {n_psnu} councils without OVC programs") %>% 
              toupper() %>% str_wrap(95),
            subtitle = type,
            x = NULL, y = NULL, fill = NULL,
-           caption = glue("Source: {source}")) +
+           caption = glue("A council is defined as having 'OVC programming' if it has OVC_SERV {ifelse(targ_res == 'targets', 'targets', 'results')} in FY{str_sub(fy, 3)}
+                          Source: {source}")) +
       si_style_xgrid() +
       theme(axis.text.y = element_blank())
     
@@ -648,11 +659,13 @@
     type <- df_scat_viz %>% 
       distinct(fiscal_year, targets_results, age_grp) %>% 
       mutate(fiscal_year = glue("FY{str_sub(fiscal_year, 3)}"),
-             targets_results = str_to_title(targets_results),
+             targets_results = ifelse(targets_results == "targets", "Targets", "Q2 Results"),
              sub = glue("{fiscal_year} {targets_results}")) %>% 
       pull()
     
-    plot_title <-  "STRONG ALIGNMENT BETWEEN OVC_SERV AND TX_CURR TARGETS"
+    plot_title <- ifelse(targ_res == "targets",
+                         "STRONG ALIGNMENT BETWEEN OVC_SERV AND TX_CURR TARGETS",
+                         "STRONG ALIGNMENT BETWEEN OVC_SERV AND TX_CURR Q2 RESULTS")
     
     v <- df_scat_viz %>% 
       ggplot(aes(tx_curr, ovc_serv)) +
@@ -688,7 +701,7 @@
   }
   
   
-  # plot_tx_ovcserv('all', 2021, 'cumulative', FALSE)
+  plot_tx_ovcserv('all', 2021, 'cumulative')
   plot_tx_ovcserv('all', 2021, 'targets')
   plot_tx_ovcserv('all', 2022, 'targets')
   
@@ -723,8 +736,9 @@
              sub = glue("{fiscal_year} PLHIV {age_grp}")) %>% 
       pull()
     
-    src <- ifelse(fy == 2021, glue("Source: {source_nat} + {source}"),
-                  glue("Source: {source_nat} + {source_dp} + {source}"))
+    src <- glue("A council is defined as having 'OVC programming' if it has OVC_SERV targets in FY{str_sub(fy, 3)}")
+    src <- ifelse(fy == 2021, glue("{src}\nSource: {source_nat} + {source}"),
+                  glue("{src}\nSource: {source_nat} + {source_dp} + {source}"))
       
     v <- df_plhiv_rank %>% 
       ggplot(aes(plhiv, fct_reorder(psnu, plhiv), fill = psnu_ovc)) +
@@ -734,7 +748,7 @@
                       family = "Source Sans Pro", color = "#505050", size = 9/.pt, segment.color = "#909090") +
       scale_x_continuous(label = comma, position = "top") +
       scale_fill_manual(values = c("OVC Programming" = scooter, "No OVC Programming" = golden_sand)) +
-      labs(title = glue("Of the largest councils where C/ALHIV {age} is greater than {comma(threshold, 1)}, there are {n_psnu} PSNUs without OVC programs") %>% 
+      labs(title = glue("Of the largest councils where C/ALHIV {age} is greater than {comma(threshold, 1)}, there are {n_psnu} councils without OVC programs") %>% 
              toupper() %>% str_wrap(95),
            subtitle = type,
            x = NULL, y = NULL, fill = NULL,
