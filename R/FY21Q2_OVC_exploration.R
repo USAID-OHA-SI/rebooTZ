@@ -117,6 +117,20 @@
   #          cumulative > 0) %>% 
   #   distinct(psnuuid) %>% 
   #   pull()
+  
+  df_ovc_psnus <- df_ovc %>%
+    filter(fiscal_year %in% c(2021:2022),
+           indicator == "OVC_SERV",
+           targets > 0) %>%
+    mutate(n = 1) %>% 
+    group_by(fiscal_year, psnu) %>% 
+    summarise(n = max(n, na.rm = TRUE), .groups = "drop") %>% 
+    pivot_wider(names_from = fiscal_year,
+                names_glue = "fy{fiscal_year}",
+                values_from = n) %>% 
+    mutate(psnu_ovc_status_22 = ifelse(is.na(fy2021), "OVC Programming (New FY22)", "OVC Programming")) %>% 
+    select(-starts_with("fy"))
+  
     
   df_ovc <- df_ovc %>% 
     filter(indicator != "OVC_SERV") %>% 
@@ -182,7 +196,9 @@
              str_remove(": Saturation"),
            snuprioritization = factor(snuprioritization, c("Scale-Up", "Sustained", "Attained")),
            # psnu_ovc = psnuuid %in% lst_ovc_psnus)
-           psnu_ovc = !is.na(ovc_serv))
+           psnu_ovc = !is.na(ovc_serv)) %>% 
+    left_join(df_ovc_psnus, by = c("psnu")) %>% 
+    mutate(psnu_ovc_status_22 = ifelse(is.na(psnu_ovc_status_22), "No OVC Programming", psnu_ovc_status_22))
   
   write_csv(df_join, glue("Dataout/{max_pd_tx}_TZA_OVC_TDY_data.csv", na = ""))
 
@@ -453,7 +469,8 @@
       filter(fiscal_year == fy,
              age_grp == age,
              targets_results == targ_res) %>% 
-      mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"),
+      mutate(psnu_ovc = psnu_ovc_status_22,
+             # psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"),
              psnu_lab = case_when(tx_curr > threshold & psnu_ovc == "No OVC Programming" ~ psnu))
     
     n_psnu <- df_tx_rank %>% 
@@ -482,16 +499,16 @@
     v <- df_tx_rank %>% 
       ggplot(aes(tx_curr, fct_reorder(psnu, tx_curr), fill = psnu_ovc)) +
       geom_col(width =0.8) +
-      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE, 
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE, max.overlaps = 20,
                       seed = 42, force = 10, hjust = 1, nudge_x = 250,  
                       family = "Source Sans Pro", color = "#505050", size = 9/.pt, segment.color = "#909090") +
       scale_x_continuous(label = comma, position = "top") +
-      scale_fill_manual(values = c("OVC Programming" = scooter, "No OVC Programming" = golden_sand)) +
-      labs(title = glue("Of the largest councils in FY{str_sub(fy, 3)} where TX_CURR {age} {ifelse(targ_res == 'targets', 'targets', 'results')} are greater than {threshold} patients, there are {n_psnu} councils without OVC programs") %>% 
+      scale_fill_manual(values = c("OVC Programming" = scooter, "OVC Programming (New FY22)" = "#084658", "No OVC Programming" = golden_sand)) +
+      labs(title = glue("Of the largest councils in FY{str_sub(fy, 3)} where TX_CURR {age} {ifelse(targ_res == 'targets', 'targets', 'results')} are greater than {threshold} patients, there are {n_psnu} councils without FY22 OVC programs") %>% 
              toupper() %>% str_wrap(95),
            subtitle = type,
            x = NULL, y = NULL, fill = NULL,
-           caption = glue("A council is defined as having 'OVC programming' if it has OVC_SERV {ifelse(targ_res == 'targets', 'targets', 'results')} in FY{str_sub(fy, 3)}
+           caption = glue("A council is defined as having 'OVC programming' if it has FY22 OVC_SERV targets
                           Source: {source}")) +
       si_style_xgrid() +
       theme(axis.text.y = element_blank())
@@ -506,15 +523,27 @@
   }
   
   
-  plot_tx_rank("all", 2021, 'cumulative')
+  # plot_tx_rank("all", 2021, 'cumulative')
   plot_tx_rank("all", 2021, 'targets')
   plot_tx_rank("all", 2022, 'targets')
   
-  plot_tx_rank("u15", 2021, 'cumulative')
+  # plot_tx_rank("u15", 2021, 'cumulative')
   plot_tx_rank("u15", 2021, 'targets')
   plot_tx_rank("u15", 2022, 'targets')
   
 
+  #list of psnus
+  df_join %>%
+    filter(fiscal_year == 2021,
+           age_grp == "all",
+           targets_results == "targets",
+           tx_curr > 500, #threshold
+           psnu_ovc_status_22 == "No OVC Programming") %>% 
+    arrange(desc(tx_curr)) %>% 
+    pull(psnu) %>% 
+    paste(collapse = ", ") %>% 
+    paste("Largest councils without FY22 OVC_SERV targets: ", .)
+  
 # VIZ - COVERAGE ----------------------------------------------------------
 
   
@@ -758,7 +787,8 @@
       filter(fiscal_year == fy,
              age_grp == age,
              targets_results == "targets") %>% 
-      mutate(psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"),
+      mutate(psnu_ovc = psnu_ovc_status_22,
+             #psnu_ovc = ifelse(psnu_ovc == "TRUE", "OVC Programming", "No OVC Programming"),
              psnu_lab = case_when(plhiv > threshold & psnu_ovc == "No OVC Programming" ~ psnu))
     
     n_psnu <- df_plhiv_rank %>% 
@@ -779,19 +809,19 @@
              sub = glue("{fiscal_year} PLHIV {age_grp}")) %>% 
       pull()
     
-    src <- glue("A council is defined as having 'OVC programming' if it has OVC_SERV targets in FY{str_sub(fy, 3)}")
+    src <- glue("A council is defined as having 'OVC programming' if it has FY22 OVC_SERV targets")
     src <- ifelse(fy == 2021, glue("{src}\nSource: {source_nat} + {source}"),
                   glue("{src}\nSource: {source_nat} + {source_dp} + {source}"))
       
     v <- df_plhiv_rank %>% 
       ggplot(aes(plhiv, fct_reorder(psnu, plhiv), fill = psnu_ovc)) +
       geom_col(width =0.8) +
-      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE, 
+      geom_text_repel(aes(label = psnu_lab), na.rm = TRUE, max.overlaps = 20,
                       seed = 42, force = 10, hjust = 1, nudge_x = 250,  
                       family = "Source Sans Pro", color = "#505050", size = 9/.pt, segment.color = "#909090") +
       scale_x_continuous(label = comma, position = "top") +
-      scale_fill_manual(values = c("OVC Programming" = scooter, "No OVC Programming" = golden_sand)) +
-      labs(title = glue("Of the largest councils where C/ALHIV {age} is greater than {comma(threshold, 1)}, there are {n_psnu} councils without OVC programs") %>% 
+      scale_fill_manual(values = c("OVC Programming" = scooter, "OVC Programming (New FY22)" = "#084658", "No OVC Programming" = golden_sand)) +
+      labs(title = glue("Of the largest councils where C/ALHIV {age} is greater than {comma(threshold, 1)}, there are {n_psnu} councils without FY22 OVC programs") %>% 
              toupper() %>% str_wrap(95),
            subtitle = type,
            x = NULL, y = NULL, fill = NULL,
@@ -816,6 +846,17 @@
   plot_plhiv_rank("u15", 2022, threshold = 500)
   
  
+  #list of psnus
+  df_join %>%
+    filter(fiscal_year == 2022,
+           age_grp == "u15",
+           targets_results == "targets",
+           plhiv > 500, #threshold
+           psnu_ovc_status_22 == "No OVC Programming") %>% 
+    arrange(desc(plhiv)) %>% 
+    pull(psnu) %>% 
+    paste(collapse = ", ") %>% 
+    paste("Largest councils without FY22 OVC_SERV targets: ", .)
    
 ###########
   
