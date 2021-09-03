@@ -51,6 +51,7 @@
   curr_fy <- source_info(genie_path, return = "fiscal_year")
   
   max_pd_tx <- "FY21Q2"
+  remove_pd <- "FY21Q3"
   
 # IMPORT ------------------------------------------------------------------
   
@@ -91,7 +92,7 @@
     group_by(psnuuid, targets_results, age_grp) %>% 
     mutate(tx_curr_lag2 = lag(tx_curr, n = 2), .after = tx_curr) %>% 
     ungroup() %>% 
-    filter(period != max_pd_tx) %>% 
+    filter(period != remove_pd) %>% 
     group_by(fiscal_year) %>% 
     filter(period == max(period)) %>%
     ungroup() %>% 
@@ -1411,4 +1412,202 @@
   si_save("Images/FY21Q2_OVC_coverage_vls_scatter.png",
           width = 8)
   
+
+# TABLE -------------------------------------------------------------------
+
+  
+  df_tbl <- df_join %>% 
+    filter(fiscal_year >= 2021,
+           psnu != "_Military Tanzania") %>% 
+    select(fiscal_year, psnu, age_grp, targets_results,
+           psnu_ovc_status_22,
+           plhiv, tx_curr) %>% 
+    mutate(targets_results = replace_na(targets_results, "targets"),
+           age_grp = ifelse(age_grp == "all", "u20", "u15")) %>% 
+    pivot_longer(c(plhiv, tx_curr),
+                 names_to = "indicator") %>% 
+    filter(!(indicator == "tx_curr" & targets_results == "targets") &
+           !(indicator == "plhiv" & targets_results == "cumulative"),
+           value > 0) %>% 
+    select(-targets_results) %>% 
+    pivot_wider(names_from = c(indicator, age_grp, fiscal_year),
+                names_sep = ".",
+                values_from = value,
+                values_fill = 0) %>% 
+    select(starts_with("psnu"), contains("u20"), everything()) %>% 
+    arrange(desc(tx_curr.u20.2021))
+  
+
+
+  thres_tx_u20 <- 400
+  thres_tx_u15 <- 250
+  thres_plhiv_u20 <- 700
+  thres_plhiv_u15 <- 500
+  
+  df_tbl <- df_tbl %>% 
+    mutate(abv_thres_tx_u20 = tx_curr.u20.2021 > thres_tx_u20,
+           abv_thres_tx_u15 = tx_curr.u15.2021 > thres_tx_u15,
+           abv_thres_plhiv_u20 = plhiv.u20.2022 > thres_plhiv_u20,
+           abv_thres_plhiv_u15 = plhiv.u15.2022 > thres_plhiv_u15,
+           abv_thres_cnt = case_when(psnu_ovc_status_22 != "OVC Programming" ~
+                                       abv_thres_tx_u20 + abv_thres_tx_u15 + abv_thres_plhiv_u20 + abv_thres_plhiv_u15
+           ))
+
+  df_tbl %>% 
+    filter(abv_thres_cnt > 0,
+           abv_thres_plhiv_u15 == TRUE) %>% 
+    distinct(psnu, plhiv.u15.2022)
+  
+  
+  df_tbl <- df_tbl %>%
+    pivot_longer(matches("^(tx|plhiv)"),
+                 names_to = c("indicator", "age_grp", "fiscal_year"),
+                 names_sep = "\\.") %>% 
+    pivot_wider(names_from = c("indicator", "fiscal_year"), 
+                names_sep = ".")
+  
+  df_tbl <- df_tbl %>% 
+    mutate(psnu_new = case_when(psnu_ovc_status_22 != "OVC Programming" ~ psnu))
+  
+  
+  p1 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 == "OVC Programming") %>% 
+    mutate(group = "COP20 Councils") %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  p2 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 != "No OVC Programming") %>% 
+    mutate(group = "COP21 Councils") %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  p3 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 == "OVC Programming" | 
+             abv_thres_cnt > 0) %>% 
+    mutate(group = "Option 1: Above any threshold") %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  p4 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 == "OVC Programming" | 
+             abv_thres_tx_u20 == TRUE) %>% 
+    mutate(group = glue("Option 2: TX_CURR <20 above {thres_tx_u20}")) %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  p5 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 == "OVC Programming" | 
+             abv_thres_tx_u15 == TRUE) %>% 
+    mutate(group = glue("Option 3: TX_CURR <15 above {thres_tx_u15}")) %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  
+  p6 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 == "OVC Programming" | 
+             abv_thres_plhiv_u20 == TRUE) %>% 
+    mutate(group = glue("Option 4: PLHIV <20 above {thres_plhiv_u20}")) %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  p7 <- df_tbl %>% 
+    filter(psnu_ovc_status_22 == "OVC Programming" | 
+             abv_thres_plhiv_u15 == TRUE) %>% 
+    mutate(group = glue("Option 5: PLHIV <15 above {thres_plhiv_u15}")) %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  df_options <- bind_rows(p1, p2, p3, p4, p5, p6, p7)
+
+  df_options <- df_options %>% 
+    mutate(group = fct_inorder(group),
+           psnus = psnus %>% str_remove_all("(NA,|NA)") %>% str_squish,
+           age_grp = ifelse(age_grp == "u20", "<20", "<15"),
+           ovc_pred = round(.9*tx_curr.2021),
+           fill_color = case_when(group == "COP20 Councils" ~ trolley_grey,
+                                  group == "COP21 Councils" ~ scooter,
+                                  TRUE ~ scooter_med))
+
+  df_options <- df_options %>% 
+    mutate(grp_name = glue("{group} ({psnu_n})"))
+           # grp_name = glue("{group}({psnu_n})\n{psnus}") %>% str_wrap(20))
+           # grp_name = glue("{group}<br><span style = 'font-size:7pt;color:#909090'>{psnus}</span>"))
+    
+  df_options %>% 
+    ggplot(aes(y = fct_rev(grp_name))) +
+    geom_col(aes(tx_curr.2021, fill = fill_color), alpha = .6) +
+    geom_col(aes(ovc_pred, fill = fill_color), alpha = .8) +
+    geom_col(aes(plhiv.2022), color = trolley_grey, fill = NA) +
+    geom_text(aes(x = 7500, label = comma(ovc_pred, 1)),
+              family = "Source Sans Pro SemiBold", color = "white") +
+    facet_wrap(~fct_rev(age_grp)) +
+    scale_fill_identity() +
+    scale_x_continuous(labels = comma) +
+    labs(x = NULL, y  = NULL,
+         title = "evaluating different thresholds' effects on estimated ovc HIV+ necessary to cover" %>% toupper,
+         subtitle = "Assuming 90% of TX_CURR are OVC HIV+",
+         caption = glue("Source: {source_nat} + {source_dp} + {source}")) +
+    si_style_xgrid() +
+    theme(#axis.text.y = element_text(size = 7),
+          plot.title.position = "plot")
+
+  si_save("Graphics/FY21Q2_OVC_size_options.svg", height = 4.625)  
+  
+ 
+  df_options %>% 
+    filter(str_detect(group, "Option 2"),
+           age_grp == "<20")
+  
+  
+  
+  df_tbl %>% 
+    filter(psnu_ovc_status_22 != "OVC Programming", 
+             abv_thres_tx_u20 == TRUE,
+           age_grp == "u20") %>% 
+    mutate(group = glue("Option 2: TX_CURR <20 above {thres_tx_u20}")) %>% 
+    group_by(group, age_grp) %>% 
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n(),
+              .groups = "drop")
+  
+  
+  df_options %>% 
+    filter(age_grp == "<20") %>% 
+    select(group, psnus)
+  
+  
+  df_tbl %>% 
+    filter(psnu_ovc_status_22 != "OVC Programming", 
+             abv_thres_tx_u15 == TRUE,
+           age_grp == "u20") %>% 
+    mutate(group = glue("Option 3: TX_CURR <15 above {thres_tx_u15}"))
+  
+  df_tbl %>% 
+    select(-psnu_new) %>% 
+    select(psnu, psnu_ovc_status_22, age_grp, tx_curr.2021, plhiv.2021, plhiv.2022,
+           everything()) %>%
+  write_csv("Dataout/COP21_OVC-Council-Thresholds_2021-09-03.csv", na = "")
   
