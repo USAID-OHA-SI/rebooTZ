@@ -1417,8 +1417,8 @@
 
   
   df_tbl <- df_join %>% 
-    filter(fiscal_year >= 2021,
-           psnu != "_Military Tanzania") %>% 
+    filter(fiscal_year >= 2021) %>% 
+           # psnu != "_Military Tanzania") %>%
     select(fiscal_year, psnu, age_grp, targets_results,
            psnu_ovc_status_22,
            plhiv, tx_curr) %>% 
@@ -1439,9 +1439,9 @@
   
 
 
-  thres_tx_u20 <- 400
-  thres_tx_u15 <- 250
-  thres_plhiv_u20 <- 700
+  thres_tx_u20 <- 395
+  thres_tx_u15 <- 270
+  thres_plhiv_u20 <- 750
   thres_plhiv_u15 <- 500
   
   df_tbl <- df_tbl %>% 
@@ -1453,10 +1453,10 @@
                                        abv_thres_tx_u20 + abv_thres_tx_u15 + abv_thres_plhiv_u20 + abv_thres_plhiv_u15
            ))
 
-  df_tbl %>% 
-    filter(abv_thres_cnt > 0,
-           abv_thres_plhiv_u15 == TRUE) %>% 
-    distinct(psnu, plhiv.u15.2022)
+  # df_tbl %>% 
+  #   filter(abv_thres_cnt > 0,
+  #          abv_thres_plhiv_u15 == TRUE) %>% 
+  #   distinct(psnu, plhiv.u15.2022)
   
   
   df_tbl <- df_tbl %>%
@@ -1472,82 +1472,96 @@
   
   p1 <- df_tbl %>% 
     filter(psnu_ovc_status_22 == "OVC Programming") %>% 
-    mutate(group = "COP20 Councils") %>% 
+    mutate(group = "COP20") %>% 
     group_by(group, age_grp) %>% 
     summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
               psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
+              psnu_n = n() - 1,
               .groups = "drop")
   
   p2 <- df_tbl %>% 
     filter(psnu_ovc_status_22 != "No OVC Programming") %>% 
-    mutate(group = "COP21 Councils") %>% 
+    mutate(group = "COP21 Submitted") %>% 
     group_by(group, age_grp) %>% 
     summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
               psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
+              psnu_n = n() - 1,
               .groups = "drop")
   
-  p3 <- df_tbl %>% 
-    filter(psnu_ovc_status_22 == "OVC Programming" | 
-             abv_thres_cnt > 0) %>% 
-    mutate(group = "Option 1: Above any threshold") %>% 
-    group_by(group, age_grp) %>% 
-    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
-              psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
-              .groups = "drop")
+  # p3 <- df_tbl %>% 
+  #   filter(psnu_ovc_status_22 == "OVC Programming" | 
+  #            abv_thres_cnt > 0) %>% 
+  #   mutate(group = "Criteria 1: Above any threshold") %>% 
+  #   group_by(group, age_grp) %>% 
+  #   summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+  #             psnus = paste(psnu_new, collapse = ", "),
+  #             psnu_n = n() - 1,
+  #             .groups = "drop")
   
   p4 <- df_tbl %>% 
     filter(psnu_ovc_status_22 == "OVC Programming" | 
              abv_thres_tx_u20 == TRUE) %>% 
-    mutate(group = glue("Option 2: TX_CURR <20 above {thres_tx_u20}")) %>% 
+    mutate(group = glue("Criteria 1: TX_CURR <20 above {thres_tx_u20}")) %>% 
     group_by(group, age_grp) %>% 
     summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
               psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
+              psnu_n = n() - 1,
               .groups = "drop")
   
   p5 <- df_tbl %>% 
     filter(psnu_ovc_status_22 == "OVC Programming" | 
              abv_thres_tx_u15 == TRUE) %>% 
-    mutate(group = glue("Option 3: TX_CURR <15 above {thres_tx_u15}")) %>% 
+    mutate(group = glue("Criteria 2: TX_CURR <15 above {thres_tx_u15}")) %>% 
     group_by(group, age_grp) %>% 
     summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
               psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
+              psnu_n = n() - 1,
               .groups = "drop")
   
   
   p6 <- df_tbl %>% 
     filter(psnu_ovc_status_22 == "OVC Programming" | 
              abv_thres_plhiv_u20 == TRUE) %>% 
-    mutate(group = glue("Option 4: PLHIV <20 above {thres_plhiv_u20}")) %>% 
+    mutate(group = glue("Criteria 3: PLHIV <20 above {thres_plhiv_u20}")) %>% 
     group_by(group, age_grp) %>% 
     summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
               psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
+              psnu_n = n() - 1,
               .groups = "drop")
   
   p7 <- df_tbl %>% 
     filter(psnu_ovc_status_22 == "OVC Programming" | 
              abv_thres_plhiv_u15 == TRUE) %>% 
-    mutate(group = glue("Option 5: PLHIV <15 above {thres_plhiv_u15}")) %>% 
+    mutate(group = glue("Criteria 4: PLHIV <15 above {thres_plhiv_u15}")) %>% 
     group_by(group, age_grp) %>% 
     summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
               psnus = paste(psnu_new, collapse = ", "),
-              psnu_n = n(),
+              psnu_n = n() - 1,
+              .groups = "drop")
+
+  p8 <- df_tbl %>%
+    filter(psnu_ovc_status_22 == "OVC Programming" |
+             (abv_thres_tx_u20 == TRUE | abv_thres_tx_u15 == TRUE)) %>%
+    mutate(group = "Recommendation: Meet Criteria 1 or 2") %>%
+    group_by(group, age_grp) %>%
+    summarise(across(c(tx_curr.2021, plhiv.2022), sum, na.rm = TRUE),
+              psnus = paste(psnu_new, collapse = ", "),
+              psnu_n = n() - 1,
               .groups = "drop")
   
-  df_options <- bind_rows(p1, p2, p3, p4, p5, p6, p7)
+  df_options <- bind_rows(p1, p2, #p3, 
+                          p4, p5, p6, p7,
+                          p8
+                          )
 
   df_options <- df_options %>% 
     mutate(group = fct_inorder(group),
            psnus = psnus %>% str_remove_all("(NA,|NA)") %>% str_squish,
            age_grp = ifelse(age_grp == "u20", "<20", "<15"),
            ovc_pred = round(.9*tx_curr.2021),
-           fill_color = case_when(group == "COP20 Councils" ~ trolley_grey,
-                                  group == "COP21 Councils" ~ scooter,
+           fill_color = case_when(group == "COP20" ~ trolley_grey,
+                                  group == "COP21 Submitted" ~ scooter,
+                                  str_detect(group, "Rec") ~ golden_sand,
                                   TRUE ~ scooter_med))
 
   df_options <- df_options %>% 
@@ -1573,12 +1587,11 @@
     theme(#axis.text.y = element_text(size = 7),
           plot.title.position = "plot")
 
-  si_save("Graphics/FY21Q2_OVC_size_options.svg", height = 4.625)  
+  si_save("Graphics/FY21Q2_OVC_size_options2.svg", height = 4.625)  
   
  
   df_options %>% 
-    filter(str_detect(group, "Option 2"),
-           age_grp == "<20")
+    filter(age_grp == "<20")
   
   
   
