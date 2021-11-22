@@ -13,10 +13,11 @@
 # Genie report updated: 11/13/2021 13:32:22 UTC
 # 
 # Current period(s): 2020 Target,  2020 Q1,  2020 Q2,  2020 Q3,  2020 Q4,  2021 Target,  2021 Q1,  2021 Q2,  2021 Q3,  2021 Q4,  2022 Target 
-# Operating Unit: Tanzania
+# Operating Unit: Tanzania,
 # Daily/Froze: Daily
-# Funding Agency: USAID
-# Indicators:
+# Funding Agency: USAID,
+# Indicator: TX_CURR,TX_ML_IIT_less_three_mo,TX_ML_IIT_more_three_mo,TX_ML_died,TX_ML_refused_stopped,TX_ML_transferred_out,TX_NET_NEW,TX_NEW,TX_PVLS,TX_RTT,
+# Fiscal Year: 2022,2021,2020,
 
 
 # DEPENDENCIES ------------------------------------------------------------
@@ -37,7 +38,7 @@
 
 # GLOBAL VARIABLES --------------------------------------------------------
   
-  genie_path <- "Data/Genie-PSNUByIMs-Tanzania-Daily-2021-11-17.zip"
+  genie_path <- "Data/Genie-PSNUByIMs-Tanzania-Daily-2021-11-19.zip"
   msd_source <- source_info(genie_path)
   
   curr_pd <- source_info(genie_path, return = "period")
@@ -197,7 +198,7 @@
     select(psnu, preferred_name)
   
   df_tx_gap <- df_tx_gap %>% 
-    semi_join(df_tx_prob) %>% 
+    semi_join(df_tx_prob)
     # semi_join(df_tx_psnu_prob)
   
   df_viz_tx_gap <- df_tx_gap %>% 
@@ -226,7 +227,7 @@
                                    "75-89%" = burnt_sienna_light,
                                    "90-110%" = scooter_med,
                                    "+110%" = trolley_grey_light)) +
-      facet_wrap(~snu1) +
+      facet_wrap(~fct_reorder(snu1, targets, sum, na.rm = TRUE, .desc = TRUE)) +
       scale_size(label = label_number_si()) +
       scale_x_continuous(label = comma) +
       scale_y_continuous(label = percent_format(1)) +
@@ -241,7 +242,7 @@
       guides(fill = guide_legend(override.aes = list(size = 5)))
     
     if(export == TRUE){
-      ptnr %>% 
+      ptnr %>% g
         tolower() %>% 
         str_remove_all(" ") %>% 
         paste0(curr_pd,"_TZA_tx_psnu_gap_", ., ".png") %>% 
@@ -361,4 +362,113 @@
     walk(print_viz_vl)
  
   print_viz_vl("EGPAF", export = FALSE)
+
+# MUNGE RETENTION ---------------------------------------------------------
+
+  df_ret <- df_genie %>% 
+    filter(operatingunit == "Tanzania",
+           fundingagency == "USAID",
+           indicator != "TX_PVLS",
+           standardizeddisaggregate == "Total Numerator") %>% 
+    mutate(ind = case_when(str_detect(indicator, "IIT") ~ "Interruption",
+                           str_detect(indicator, "TX_ML") ~ "Other Loss",
+                           indicator == "TX_NEW" ~ "New",
+                           indicator == "TX_RTT" ~ "Returned",
+                           TRUE ~ indicator)) %>% 
+    group_by(fiscal_year, snu1, preferred_name, ind) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd() %>% 
+    select(-period_type)  %>% 
+    mutate(value = ifelse(ind %in% c("Interruption","Other Loss"), -value, value)) 
+  
+  df_ret <- df_ret %>% 
+    pivot_wider(names_from = ind,
+                values_fill = 0) %>% 
+    mutate(net = (New + Returned + Interruption + `Other Loss`),
+           `Unexplained Net New` = TX_NET_NEW - net,
+           `Unexplained Net New` = na_if(`Unexplained Net New`, 0)) %>% 
+    select(-c(net)) %>% 
+    pivot_longer(c(Interruption, New, `Other Loss`, Returned, `Unexplained Net New`),
+                 names_to = "ind",
+                 values_drop_na = TRUE) %>% 
+    mutate(share = value/TX_CURR,
+           share_nn = TX_NET_NEW/TX_CURR)
+ 
+    
+  df_ret <- df_ret %>% 
+    mutate(keep = case_when(period == "FY21Q4" ~ TRUE)) %>% 
+    group_by(preferred_name, snu1) %>% 
+    fill(keep, .direction = "updown") %>% 
+    ungroup() %>% 
+    filter(keep == TRUE)
+  
+  df_ret <- df_ret %>% 
+    mutate(ind = factor(ind, c("Interruption",  "Other Loss", "New", "Returned", "Unexplained Net New")))
+  
+
+  df_viz_ret <- df_ret %>%
+    group_by(period, snu1, preferred_name) %>% 
+    mutate(row = dplyr::row_number()) %>% 
+    ungroup() %>% 
+    mutate(across(c(TX_NET_NEW, share_nn), ~ case_when(row == 1 ~ .)),
+           share = case_when(preferred_name == "Deloitte" & snu1 == "Ruvuma" & period == "FY20Q1" & ind == "Unexplained Net New" ~ NA_real_,
+                             preferred_name == "THPS" & period == "FY21Q2" & ind == "Unexplained Net New" ~ NA_real_,
+                                                  TRUE ~ share),
+           share_nn = case_when(preferred_name == "Deloitte" & snu1 == "Ruvuma" & period == "FY20Q1" ~ NA_real_,
+                                preferred_name == "THPS" & period == "FY21Q2" ~ NA_real_,
+                                TRUE ~ share_nn))
+    
+   
+
+  print_viz_ret <- function(ptnr, export = TRUE){
+    pds_brks <- df_viz_ret %>% 
+      distinct(period) %>% 
+      filter(str_detect(period, "Q(2|4)")) %>% 
+      pull()
+    
+    df_viz_ret %>% 
+      filter(preferred_name == ptnr,
+             TX_CURR > 0) %>% 
+      ggplot(aes(period, share, fill = ind)) +
+      geom_col(alpha = .9) +
+      geom_errorbar(aes(ymin = share_nn, ymax = share_nn), size = 1.2, na.rm = TRUE) +
+      geom_hline(yintercept = 0) +
+      facet_wrap(~fct_reorder2(snu1, period, TX_CURR)) +
+      scale_y_continuous(label = percent_format(1)) +
+      scale_x_discrete(breaks = pds_brks) +
+      scale_fill_manual(values = c("Interruption" = si_palettes$burnt_siennas[5],
+                                   "Other Loss" = si_palettes$burnt_siennas[4],
+                                   "New" = si_palettes$scooters[5], 
+                                   "Returned" = si_palettes$scooters[4], 
+                                   "Unexplained Net New" = trolley_grey)) +
+      labs(x = NULL, y = NULL, fill = NULL,
+           title = glue("OVERALL RETENTION REMAINS POSITIVE FOR {toupper(ptnr)} WITH LIMITED TX_CURR LOSES EACH QUARTER"),
+           subtitle = "Share of Current on Treatment | Overall Net New ( **\u2015**)",
+           caption =  glue("Calculated from TX_CURR, TX_NEW, TX_ML, TX_RTT
+                        Source: {msd_source}
+                        US Agency for International Development")) +
+      si_style_ygrid() +
+      theme(panel.spacing.y = unit(.5, "line"),
+            plot.subtitle = element_markdown())
+    
+    if(export == TRUE){
+      ptnr %>% 
+        tolower() %>% 
+        str_remove_all(" ") %>% 
+        paste0(curr_pd,"_TZA_retention_", ., ".png") %>% 
+        si_save(path = "Images")
+    } else {
+      return(v)
+    }
+  }
+  
+    
+  df_ret %>% 
+    filter(TX_CURR > 0,
+           str_detect(period, "FY21")) %>% 
+    mutate(preferred_name = fct_reorder2(preferred_name, period, TX_CURR)) %>% 
+    arrange(preferred_name) %>% 
+    distinct(preferred_name) %>%
+    pull() %>%
+    walk(print_viz_ret)
   
