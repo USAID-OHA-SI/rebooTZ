@@ -3,7 +3,7 @@
 # PURPOSE:  
 # LICENSE:  MIT
 # DATE:     2021-11-17
-# UPDATED: 
+# UPDATED:  2021-12-15
 
 
 # META DATA ---------------------------------------------------------------
@@ -32,7 +32,7 @@
   library(patchwork)
   library(ggtext)
   library(glue)
-  library(ggnewscale)
+  # library(ggnewscale)
   library(ggrepel)
   
 
@@ -95,7 +95,6 @@
     mutate(status = case_when(achv_color == trolley_grey_light ~ "Over achieved",
                               achv_color == scooter_med ~ "Achieved",
                               TRUE ~ "Under achieved"),
-           # facet_name = glue("{snu1}  <span style='font-size:14pt; color:{achv_color}'>\u25CF</span><br>FY21: {label_number_si()(label_results)}/{label_number_si()(label_targets)}"),
            facet_name = glue("{snu1}<br><span style='font-size:14pt; color:{achv_color}'>\u25CF</span> {status} ({label_number_si()(label_results)}/{label_number_si()(label_targets)})"),
            facet_name = fct_reorder2(facet_name, period, targets),
            targets_eb = case_when(str_detect(period, "Q4") ~ targets),
@@ -120,7 +119,6 @@
       mutate(status = case_when(achv_color == trolley_grey_light ~ "Over achieved",
                                 achv_color == scooter_med ~ "Achieved",
                                 TRUE ~ "Under achieved") %>% toupper)
-    df_ptnr <- df_pntr
     
     brks <- df_ptnr %>% 
       distinct(period) %>% 
