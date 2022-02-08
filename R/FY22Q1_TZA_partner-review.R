@@ -198,11 +198,12 @@
 
   #limit to correct age/sex disaggs
   df_agesex <- df_sub %>% 
-    inner_join(df_disaggs) %>% 
+    inner_join(df_disaggs, by = c("indicator", "standardizeddisaggregate")) %>% 
     filter(ageasentered %ni% c("Unknown Age", "<10"))
     
   #aggregate
   df_agesex <- df_agesex %>% 
+    mutate(ageasentered = ifelse(ageasentered %in% c("50-54", "55-59", "60-64", "65+"), "50+", ageasentered)) %>% 
     group_by(fiscal_year, partner, indicator, ageasentered, sex) %>% 
     summarise(across(c(targets, cumulative), sum, na.rm = TRUE), .groups = "drop") %>% 
     complete(indicator, nesting(partner), fill = list(fiscal_year = curr_fy, ageasentered = "<01"))
@@ -229,6 +230,8 @@
       ggplot(aes(y = ageasentered)) +
       geom_blank(aes(balance)) + 
       geom_blank(aes(-balance)) + 
+      geom_blank(aes(20)) + 
+      geom_blank(aes(-20)) + 
       geom_col(aes(x = plot_targets), fill = trolley_grey_light) +
       geom_col(aes(x = plot_cumulative, fill = sex)) +
       geom_errorbar(aes(xmin = curr_target, xmax = curr_target), size = .4, color = grey90k) +
@@ -237,9 +240,9 @@
       scale_fill_manual(values = c("Female" = moody_blue, "Male" = genoa)) +
       scale_x_continuous(labels = ~ comma(abs(.))) +
       labs(x = NULL, y = NULL, fill = NULL,
-           title = glue("FY{curr_fy}Q{curr_qtr} Tanzania | {ptnr}") %>% toupper,
+           title = glue("FY{str_sub(curr_fy, -2)}Q{curr_qtr} Tanzania | {ptnr}") %>% toupper,
            subtitle = glue("Partner cumulative **<span style = 'color:{moody_blue};'> Female</span>/<span style = 'color:{genoa};'>Male</span>** results by age against **<span style = 'color:{trolley_grey};'>targets</span>**<br>
-                         <span style = 'font-size:11pt;color:{color_caption};'>Goal (vertical bar) for 75% at Q3 (snapshot indicators pegged to year end target 100%)</span>"),
+                         <span style = 'font-size:11pt;color:{color_caption};'>Goal (vertical bar) for {percent(.25*curr_qtr)} at Q{curr_qtr} (snapshot indicators pegged to year end target 100%)</span>"),
            caption = glue("No targets for HTS_SELF
                         Source: {source}
                         US Agency for International Development")) +
@@ -259,60 +262,74 @@
     }
   }
   
-  plot_agesex("EGPAF", FALSE)
+  plot_agesex(unique(df_agesex$partner)[1], FALSE)
   
   walk(unique(df_agesex$partner), plot_agesex)
   
 
-# MUNGE - MAP -------------------------------------------------------------
 
-  #build terrain map to form base
-  map_terr <- terrain_map(countries = 'United Republic of Tanzania',
-                          mask = TRUE,
-                          terr = si_path("path_raster"))
-  
-  #limit TZA shapefile to just uids and geom before merging with data
-  shp_tza <- shp_tza %>% 
-    select(snu1uid = uid, geometry)
-  
-  #join shapefile to data
-  df_map <- df_achv %>% 
-    filter(snu1 != "NATIONAL") %>% 
-    # complete(indicator, nesting(partner), fill = list(achv_color = trolley_grey_light, achievement = 0)) %>%
-    full_join(shp_tza) %>% 
-    mutate(indicator = factor(indicator, ind_sel))
-  
+# MUNGE - TRENDS ----------------------------------------------------------
 
-# VIZ - MAP ---------------------------------------------------------------
+  #aggregate to regional level
+  df_trends <- df_genie %>% 
+    filter(fundingagency == "USAID",
+           indicator %in% ind_sel,
+           standardizeddisaggregate %in% c("Total Numerator", "Total Denominator")) %>% 
+    clean_indicator() %>% 
+    inner_join(df_ptnr, by = "mech_code") %>% 
+    group_by(fiscal_year, partner, indicator) %>% 
+    summarize(across(starts_with("qtr"), sum, na.rm = TRUE), 
+              .groups = "drop") %>% 
+    reshape_msd() %>% 
+    select(-period_type) %>% 
+    complete(period, indicator, nesting(partner)) %>% 
+    mutate(indicator = factor(indicator, ind_sel),
+           value = ifelse(value == 0, NA, value))
+  
+  pds <- df_trends %>% 
+    distinct(period) %>% 
+    filter(str_detect(period, "Q(1|3)")) %>% 
+    pull()
 
-  plot_map <- function(ptnr, export = TRUE){
-    v <-  map_terr +
-      geom_sf(data = filter(df_map, partner == {ptnr}),
-              aes(fill = achv_color, geometry = geometry), size = .2) +
-      # geom_sf_text(aes(label = percent(achievement, 1), geometry = geometry),
-      #              family = "Source Sans Pro", color = "#505050", size = 7/.pt) +
-      scale_fill_identity() +
-      facet_wrap(~indicator) +
+# VIZ - TRENDS ------------------------------------------------------------
+
+  plot_trends <- function(ptnr, export = TRUE){
+    v <- df_trends %>%
+      filter(partner == {ptnr}) %>% 
+      ggplot(aes(period, value, group = indicator)) +
+      geom_blank(aes(y = 100)) +
+      geom_blank(aes(y = value * 1.1)) +
+      geom_area(alpha = .1, color = scooter, fill = scooter_light) +
+      geom_point(color = scooter) +
+      facet_wrap(~indicator, scales = "free_y") +
+      scale_y_continuous(labels = label_number_si(1)) +
+      scale_x_discrete(breaks = pds) +
+      expand_limits(y = 0) +
       labs(x = NULL, y = NULL,
-           title = glue("FY{curr_fy}Q{curr_qtr} Tanzania | {ptnr}") %>% toupper,
-           subtitle = glue("Partner regional achievement<br>
-                         <span style = 'font-size:11pt;color:{color_caption};'>Goal for 75% at Q3 (snapshot indicators pegged to year end target 100%)</span>"),
+           title = glue("Trends through FY{str_sub(curr_fy, -2)}Q{curr_qtr} Tanzania | {ptnr}") %>% toupper,
+           subtitle = "Partner national trends",
            caption = glue("Source: {source}
                         US Agency for International Development")) +
-      si_style_map() +
-      theme(panel.spacing.x = unit(.5, "lines"),
-            panel.spacing.y = unit(.5, "lines"),
-            plot.subtitle = element_markdown(),
-            strip.text = element_text(face = "bold"))
+      si_style_ygrid() +
+      theme(#panel.spacing.x = unit(1, "lines"),
+        panel.spacing.y = unit(.5, "lines"),
+        legend.position = "none",
+        strip.text = element_text(face = "bold"),
+        axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.subtitle = element_markdown())
     
     if(export == TRUE){
-      si_save(glue("Images/FY{curr_fy}Q{curr_qtr}_TZA_Partner-Map_{ptnr}.png"), v)
+      si_save(glue("Images/FY{curr_fy}Q{curr_qtr}_TZA_Partner-Trends_{ptnr}.png"), v)
     } else {
       return(v)
     }
+    
   }
   
-
-  plot_map("EpiC", FALSE)
+  plot_trends(unique(df_trends$partner)[1], FALSE)
   
-  walk(unique(df_map$partner)[1:5], plot_map)
+
+  walk(c("Baylor", "EpiC", "THPS"), plot_trends)
+    
+  
