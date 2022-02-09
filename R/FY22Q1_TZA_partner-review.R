@@ -3,7 +3,7 @@
 # PURPOSE:  provide additional FY21Q3 partner review slides
 # LICENSE:  MIT
 # DATE:     2022-02-08
-# UPDATED:  
+# UPDATED:  2022-02-09
 # NOTE:     based on rebooTZ/FY21Q3_TZA_partner-review.R
 
 
@@ -76,7 +76,7 @@
                   )
 
   #caption info for plotting
-  source <- source_info(genie_path)
+  msd_source <- source_info(genie_path)
   
   #current FY and quarter
   curr_fy <- source_info(genie_path, return = "fiscal_year")
@@ -174,7 +174,7 @@
            subtitle = glue("Partner achievement nationally (large, labeled points) with regional reference points<br>
                          <span style = 'font-size:11pt;color:{color_caption};'>Goal for {percent(.25*curr_qtr)} at Q{curr_qtr} (snapshot indicators pegged to year end target 100%)</span>"),
            caption = glue("Target achievement capped at 110%
-                        Source: {source}
+                        Source: {msd_source}
                         US Agency for International Development")) +
       si_style_nolines() +
       theme(axis.text.x = element_blank(),
@@ -244,7 +244,7 @@
            subtitle = glue("Partner cumulative **<span style = 'color:{moody_blue};'> Female</span>/<span style = 'color:{genoa};'>Male</span>** results by age against **<span style = 'color:{trolley_grey};'>targets</span>**<br>
                          <span style = 'font-size:11pt;color:{color_caption};'>Goal (vertical bar) for {percent(.25*curr_qtr)} at Q{curr_qtr} (snapshot indicators pegged to year end target 100%)</span>"),
            caption = glue("No targets for HTS_SELF
-                        Source: {source}
+                        Source: {msd_source}
                         US Agency for International Development")) +
       si_style_xgrid() +
       theme(#panel.spacing.x = unit(1, "lines"),
@@ -308,7 +308,7 @@
       labs(x = NULL, y = NULL,
            title = glue("Trends through FY{str_sub(curr_fy, -2)}Q{curr_qtr} Tanzania | {ptnr}") %>% toupper,
            subtitle = "Partner national trends",
-           caption = glue("Source: {source}
+           caption = glue("Source: {msd_source}
                         US Agency for International Development")) +
       si_style_ygrid() +
       theme(#panel.spacing.x = unit(1, "lines"),
