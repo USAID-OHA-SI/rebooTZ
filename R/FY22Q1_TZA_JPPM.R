@@ -369,9 +369,9 @@
     fill(growth_rate_req, .direction = "updown") %>% 
     mutate(growth_rate = (results - lag(results, order_by = period))/lag(results, order_by = period)) %>% 
     ungroup() %>% 
-    mutate(grr_lab = case_when(growth_rate_req < 0 ~ glue("{snu1}\nTarget already achieved"), 
-                               growth_rate_req < .1 ~ glue("{snu1}\nQuarterly growth need for remainder of {str_replace(curr_fy, '20', 'FY')}: {percent(growth_rate_req, .1)}"),
-                               TRUE ~ glue("{snu1}\nQuarterly growth need for remainder of {str_replace(curr_fy, '20', 'FY')}:{percent(growth_rate_req, .1)}")),
+    mutate(grr_lab = case_when(growth_rate_req < 0 ~ glue("{toupper(snu1)}\nTarget already achieved"), 
+                               growth_rate_req < .1 ~ glue("{toupper(snu1)}\nQuarterly growth need for remainder of {str_replace(curr_fy, '20', 'FY')}: {percent(growth_rate_req, .1)}"),
+                               TRUE ~ glue("{toupper(snu1)}\nQuarterly growth need for remainder of {str_replace(curr_fy, '20', 'FY')}:{percent(growth_rate_req, .1)}")),
            gr_label_position = 0)
   
   ptnr <- "EGPAF"
