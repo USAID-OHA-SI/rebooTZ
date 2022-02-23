@@ -372,15 +372,17 @@
     mutate(grr_lab = case_when(growth_rate_req < 0 ~ glue("{toupper(snu1)}\nTarget already achieved"), 
                                growth_rate_req < .1 ~ glue("{toupper(snu1)}\nQuarterly growth need for remainder of {str_replace(curr_fy, '20', 'FY')}: {percent(growth_rate_req, .1)}"),
                                TRUE ~ glue("{toupper(snu1)}\nQuarterly growth need for remainder of {str_replace(curr_fy, '20', 'FY')}:{percent(growth_rate_req, .1)}")),
-           gr_label_position = 0)
+           gr_label_position = 0,
+           disp_targets = case_when(fiscal_year == curr_fy ~ targets))
   
   ptnr <- "EGPAF"
   df_tx_viz %>% 
     filter(primepartner == ptnr) %>% 
     ggplot(aes(period, results, fill = as.character(fiscal_year))) +
+    geom_col(aes(y = disp_targets), na.rm = TRUE, fill = suva_grey, alpha = .3) +
     geom_col() +
     geom_text(aes(label = percent(growth_rate, .1), y = gr_label_position),
-               family = "Source Sans Pro", color = "#909090", size = 9/.pt, 
+               family = "Source Sans Pro", color = matterhorn, size = 9/.pt, 
                vjust = 1.3, na.rm = TRUE) +
     geom_errorbar(aes(ymin = targets, ymax = targets), linetype = "dashed", width = .95) +
     facet_wrap(~fct_reorder2(grr_lab, period, targets)) +
