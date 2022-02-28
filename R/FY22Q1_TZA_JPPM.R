@@ -3,7 +3,7 @@
 # PURPOSE:  partner visuals for JPPM
 # LICENSE:  MIT
 # DATE:     2022-02-22
-# UPDATED:  2022-02-24
+# UPDATED:  2022-02-28
 
 # DEPENDENCIES ------------------------------------------------------------
   
@@ -304,7 +304,7 @@
   print_viz_ret <- function(ptnr, export = TRUE){
     pds_brks <- df_viz_ret %>% 
       distinct(period) %>% 
-      filter(str_detect(period, "Q(2|4)")) %>% 
+      filter(str_detect(period, "Q(1|3)")) %>% 
       pull()
     
     v <- df_viz_ret %>% 
@@ -534,7 +534,7 @@
   df_vl <- df_vl %>% 
     rename_official() %>% 
     mutate(primepartner = case_when(primepartner == "Elizabeth Glaser Pediatric Aids Foundation" ~ "EGPAF",
-                                    primepartner == "TANZANIA HEALTH PROMOTION SUPP ORT (THPS)" ~ "THPS")) %>% 
+                                    primepartner == "TANZANIA HEALTH PROMOTION SUPP ORT (THPS)" ~ "THPS"))
   
   df_tza_orgs <- Wavelength::pull_hierarchy("mdXu6iCbn2G",
                                             datim_user(), datim_pwd())
@@ -607,4 +607,83 @@
   
     
 
+# SITE NET_NEW ------------------------------------------------------------
+
   
+  #access from https://pepfar.sharepoint.com/:f:/r/sites/ICPI/Products/ICPI%20Data%20Store/MER/FY22%20Q1%20Beta%20Datasets%20-%20Calculations%20Across%20Time/FY22%20Q1%20Initial%20(Feb%2018)?csf=1&web=1&e=b20E8z
+  
+  df_nn  <- si_path() %>% 
+    return_latest("CalcAcrTime_flags.*txt") %>% 
+    vroom::vroom(delim = "\t", col_types = c(.default = "c"))  %>% 
+    filter(indicator %in% c("TX_CURR", "TX_NET_NEW_SHIFT"),
+           standardizeddisaggregate == "Total Numerator",
+           mech_code %in% ptnrs_mech,
+           period_code == max(period_code)) %>% 
+    clean_indicator() %>% 
+    mutate(period = period_code %>% 
+             lubridate::yq() %>% 
+             lubridate::quarter(fiscal_start = 10, with_year = TRUE) %>% 
+             as.character() %>% 
+             str_replace("20", "FY") %>% 
+             str_replace("\\.", "Q"),
+           value = quarterly_result %>% as.numeric %>% round,
+           fiscal_year = as.numeric(fiscal_year)) 
+  
+  df_nn <- df_nn %>% 
+    rename_official() %>% 
+    mutate(primepartner = case_when(primepartner == "Elizabeth Glaser Pediatric Aids Foundation" ~ "EGPAF",
+                                    primepartner == "TANZANIA HEALTH PROMOTION SUPP ORT (THPS)" ~ "THPS"))
+    
+  df_tza_orgs <- Wavelength::pull_hierarchy("mdXu6iCbn2G",
+                                            datim_user(), datim_pwd())
+  
+  df_nn  <- left_join(df_nn , df_tza_orgs) 
+  
+  rm(df_tza_orgs)
+  
+  
+  df_nn_share <- df_nn %>% 
+    select(snu1, psnu, sitename, orgunituid, primepartner, indicator, indicatortype,
+           period, value) %>% 
+    pivot_wider(names_from = indicator,
+                names_glue = "{tolower(indicator)}") %>% 
+    mutate(share_nn = tx_net_new_shift/tx_curr,
+           fill_color = ifelse(share_nn <= 0, burnt_sienna, scooter),
+           lab_site = case_when(share_nn <= 0 ~ sitename))
+  
+
+  
+  df_nn_share %>% 
+    filter(primepartner == "THPS") %>% 
+    ggplot(aes(share_nn, fct_reorder(snu1, tx_curr, sum), size = tx_curr, color = fill_color)) +
+    geom_vline(xintercept = 0) +
+    geom_point(position = position_jitter(width = 0, height = .3, seed = 42),
+               alpha = .4, na.rm = TRUE) +
+    geom_text(aes(label = lab_site), na.rm = TRUE, size = 11/.pt,
+               family = "Source Sans Pro", color = "#505050") +
+    scale_x_continuous(labels = percent_format(1), 
+                       breaks = seq(-.3, 1, .1)) +
+    scale_size(label = label_number_si()) +
+    scale_color_identity() +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL,
+         title = "MINIMAL NET NEW GROWTH FOR THPS WITH A NUMBER OF SITES WITH LOSSES",
+         subtitle = "TX_NET_NEW (Adjusted) share of TX_CURR by facility",
+         size = "Patients on treatment (TX_CURR) in each council",
+         caption = "TX_NET_NEW_SHIFT used
+         Source: FY22Q1i MSD [CalcAcrTime_flags]
+       US Agency for International Development") +
+    si_style()
+  
+  
+  df_nn_share %>% 
+    filter(primepartner == "THPS") %>% 
+    count(wt = tx_net_new_shift)
+  
+    si_save("Graphics/FY22Q1_TZA_nn_thps.svg")
+
+        
+    df_nn_share %>% 
+      filter(primepartner == "THPS",
+             snu1 == "Kilimanjaro") 
+    
