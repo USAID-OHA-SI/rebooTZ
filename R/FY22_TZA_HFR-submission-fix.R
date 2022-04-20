@@ -66,7 +66,6 @@
                      tabs = excel_sheets(.x))) |>
     filter(str_detect(tabs, "HFR"))
 
-
 # FUNCTION - RECTIFY SUBMISSION -------------------------------------------
 
   rectify_submission <- function(subm_file, subm_tab){
@@ -154,9 +153,17 @@
     #remove extra worksheets
     removeWorksheet(wb, str_subset(names(wb), glue("meta|{subm_tab}"), negate = TRUE))
 
+    #pull header info
+    sht_hdrs <- read.xlsx(wb, subm_tab, colNames = FALSE, rows = 1)
+    
     #write data to tab
-    openxlsx::writeData(wb, subm_tab, df, startRow = 3, colNames = FALSE)
-
+    # writeData(wb, subm_tab, df, startRow = 3, colNames = FALSE)
+    addWorksheet(wb, "HFR")
+    writeData(wb, "HFR", sht_hdrs, colNames = FALSE)
+    writeData(wb, "HFR", df, startRow = 2)
+    removeWorksheet(wb, subm_tab)
+    renameWorksheet(wb, "HFR", subm_tab)
+    
     #identify new name for saving removing user and adding site type (outputing as single tab)
     site_type <- ifelse(str_detect(subm_tab, "f$"), "fac", "comm")
     n_file <- glue('{str_remove(subm_file, " -.*")}adj_{site_type}.xlsx')
@@ -174,3 +181,73 @@
        ~rectify_submission(..1, ..2))
 
   shell.exec(folderpath_tmp)
+
+  
+  subm_file <- df_files_tabs$file[3]
+  subm_tab <- df_files_tabs$tabs[3]
+
+  
+  
+  library(Wavelength)
+  
+  read_excel(subm_file, subm_tab, skip = 1, col_types = "text") %>% 
+    mutate(date = date %>%
+                    as.double %>%
+                    excel_numeric_to_date %>%
+                    as.character,
+           across(matches("^(hts|tx|vmmc|prep)"), as.numeric)) %>% 
+    group_by(date) %>% 
+    summarise(across(where(is.double), sum, na.rm = TRUE)) %>% 
+    glimpse()
+  
+  df %>% 
+    group_by(date) %>% 
+    summarise(across(where(is.double), sum, na.rm = TRUE)) %>% 
+    glimpse()
+  
+  
+  local_files_orig <- list.files(folderpath_tmp, "Nyaso", full.names = TRUE)
+  local_files_adj <- list.files(folderpath_tmp, "(fac|comm)", full.names = TRUE)
+    
+
+  check_agg_total <- function(filename,type){
+    filename %>% 
+      excel_sheets() %>% 
+      str_subset("HFR") %>% 
+      set_names() %>% 
+      map_dfr(~read_excel(filename, .x, skip = 1, col_types = "text") %>% 
+                mutate(date = ifelse(str_detect(date, "-"), date,
+                                     date %>%
+                                       as.double %>%
+                                       excel_numeric_to_date %>%
+                                       as.character),
+                       across(matches("^(hts|tx|vmmc|prep)"), as.numeric)),
+              .id = "tab") %>% 
+      group_by(date) %>% 
+      summarise(across(where(is.double), sum, na.rm = TRUE), .groups = "drop") %>%
+      pivot_longer(-c(date),
+                   names_to = "indicator",
+                   values_to = {type})
+  } 
+
+  df_check_orig <- map_dfr(local_files_orig, ~ check_agg_total(.x, "orig")) %>% 
+    filter(!(is.na(date) & orig == 0)) %>% 
+    rename(value_orig = orig)
+  
+  df_check_adj <- map_dfr(local_files_adj, ~ check_agg_total(.x, "adj")) %>% 
+    filter(!(is.na(date) & adj == 0)) %>% 
+    count(date, indicator, wt = adj, name = "value_adj")
+  
+  full_join(df_check_orig, df_check_adj,
+            by = c("date", "indicator")) %>% 
+    arrange(date, indicator) %>% 
+    mutate(match = value_orig == value_adj) %>% 
+    prinf()
+  
+  df_check_orig %>% 
+    mutate(date_correct = ifelse(date == "2022-01-02", "2022-02-01", date),
+           .after = date) %>% 
+    rename(date_entered = date) %>% 
+    arrange(date_correct, indicator) %>% 
+    clipr::write_clip()
+  
