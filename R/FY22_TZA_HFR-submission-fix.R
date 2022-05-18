@@ -3,7 +3,7 @@
 # PURPOSE:  resolve HFR issue with FY22 data
 # LICENSE:  MIT
 # DATE:     2022-03-30
-# UPDATED:
+# UPDATED:  2022-05-18
 
 # DEPENDENCIES ------------------------------------------------------------
 
@@ -46,7 +46,8 @@
     mutate(file_id = str_extract(upload_your_hfr_file_s_here, "(?<=id=).*")) |>
     select(timestamp, hfr_pd = hfr_fy_and_period, file_id) |>
     mutate(filename = map(file_id, ~drive_get(as_id(.x))$name)) |>
-    unnest(filename)
+    unnest(filename) %>% 
+    filter(timestamp == max(timestamp))
 
 
 # DOWNLOAD AND IDENTIFY TABS ----------------------------------------------
@@ -117,7 +118,7 @@
         filter(date == act_date)
 
       #join back together
-      df <- bind_rows(df_fixed_date, df_zero_out_date, df_okay_date)
+      df <- bind_rows(df_fixed_date, df_okay_date)
     }
 
     #check if there are any old mechanisms
@@ -172,6 +173,22 @@
 
     #export tab
     saveWorkbook(wb, n_file, overwrite = TRUE)
+    
+    #output zero date data
+    if(nrow(df_wrong_date) > 0){
+      pd <- glue::glue("FY{lubridate::quarter(df_zero_out_date$date[1], fiscal_start = 10, with_year = TRUE) %>% str_sub(3, 4)
+} { lubridate::month(df_zero_out_date$date[1], TRUE)}")
+      writeData(wb, "meta", pd, xy = c("C", 3), colNames = FALSE)
+      addWorksheet(wb, "HFR")
+      writeData(wb, "HFR", sht_hdrs, colNames = FALSE)
+      writeData(wb, "HFR", df_zero_out_date, startRow = 2)
+      removeWorksheet(wb, subm_tab)
+      renameWorksheet(wb, "HFR", subm_tab)
+      n_file <- glue('{str_remove(subm_file, " -.*")}zero_{site_type}.xlsx')
+      ui_info("saving as {ui_path(basename(n_file))}")
+      saveWorkbook(wb, n_file, overwrite = TRUE)
+    }
+      
   }
 
 
@@ -183,22 +200,22 @@
   shell.exec(folderpath_tmp)
 
   
-  subm_file <- df_files_tabs$file[3]
-  subm_tab <- df_files_tabs$tabs[3]
+  subm_file <- df_files_tabs$file[1]
+  subm_tab <- df_files_tabs$tabs[1]
 
   
   
   library(Wavelength)
   
-  read_excel(subm_file, subm_tab, skip = 1, col_types = "text") %>% 
-    mutate(date = date %>%
+  readxl::read_excel(subm_file, subm_tab, skip = 1, col_types = "text") %>% 
+    dplyr::mutate(date = date %>%
                     as.double %>%
                     excel_numeric_to_date %>%
                     as.character,
-           across(matches("^(hts|tx|vmmc|prep)"), as.numeric)) %>% 
-    group_by(date) %>% 
-    summarise(across(where(is.double), sum, na.rm = TRUE)) %>% 
-    glimpse()
+                  dplyr::across(matches("^(hts|tx|vmmc|prep)"), as.numeric)) %>% 
+    dplyr::group_by(date) %>% 
+    dplyr::summarise(dplyr::across(where(is.double), sum, na.rm = TRUE)) %>% 
+    dplyr::glimpse()
   
   df %>% 
     group_by(date) %>% 
