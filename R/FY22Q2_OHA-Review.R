@@ -205,7 +205,8 @@
   pd_brks <- df_iit %>% 
     distinct(period) %>% 
     filter(period != min(period)) %>% 
-    mutate(period = str_replace(period, "FY.*(1|3)$", "")) %>% 
+    mutate(period = ifelse(period == max(period), period, "")) %>% 
+    # mutate(period = str_replace(period, "FY.*(1|3)$", "")) %>% 
     pull()
   
   df_iit %>% 
@@ -230,10 +231,10 @@
          size = "Site TX_CURR (1 period prior)",
          # title = glue("Sizable IIT continue into {curr_pd}") %>% toupper,
          subtitle = glue("Site IIT calculated in the {length(v_lrg)} largest TX_ML regions, FY21Q2-FY22Q2"),
-         caption = glue("IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%
-                        Source: {msd_source}")) +
+         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%; Source: {msd_source}")) +
     si_style() +
     theme(panel.spacing = unit(.5, "line"),
+          axis.text = element_text(size = 8),
           plot.subtitle = element_markdown())
   
   si_save(glue("Images/{curr_pd}_TZA_region_iit_lim.png"), width = 5, height = 2)
