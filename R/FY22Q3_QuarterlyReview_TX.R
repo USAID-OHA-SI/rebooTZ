@@ -4,7 +4,7 @@
 # REF ID:   1d42aef5 
 # LICENSE:  MIT
 # DATE:     2022-08-17
-# UPDATED: 
+# UPDATED:  2022-08-22
 
 
 # DATIM REPORT PARAMETERS -------------------------------------------------
@@ -24,6 +24,7 @@
 # DEPENDENCIES ------------------------------------------------------------
   
   library(tidyverse)
+  library(lubridate)
   library(gagglr)
   library(glue)
   library(scales)
@@ -39,15 +40,33 @@
   
   genie_path <- si_path() %>% 
     return_latest("Genie-PSNUByIMs-Tanzania-Daily")
-    
+  
   msd_source <- source_info(genie_path)
+  
+# IMPORT ------------------------------------------------------------------
+  
+  df <- read_msd(genie_path) 
+
+  # df <- df %>% 
+  #   filter(operatingunit == "Tanzania",
+  #          funding_agency == "USAID",
+  #          fiscal_year >= 2021,
+  #          indicator %in% c("TX_CURR", "TX_ML", "TX_NET_NEW", "TX_NET_NEW_SHIFT", 
+  #                           "TX_NEW", "TX_PVLS", "TX_RTT"))
+  
+# PERIODS -----------------------------------------------------------------
+  
   curr_pd <- source_info(genie_path, return = "period")
   curr_fy <- source_info(genie_path, return = "fiscal_year")
   curr_qtr <- source_info(genie_path, return = "quarter")
-
-# IMPORT ------------------------------------------------------------------
   
-  df <- read_msd(genie_path)   
+  full_pds <- (min(df$fiscal_year) - 1) %>% 
+    paste0("-10-01") %>% 
+    as_date() %>% 
+    seq.Date(convert_qtr_to_date(curr_pd), by = "3 months") %>% 
+    convert_date_to_qtr()
+  
+  pd_brks <- str_replace(full_pds, "FY.*(2|4)$", "")
   
 
 # GROWTH RATE -------------------------------------------------------------
@@ -79,13 +98,14 @@
     geom_col(aes(y = disp_targets), na.rm = TRUE, fill = suva_grey, alpha = .3) +
     geom_col(na.rm = TRUE) +
     geom_errorbar(aes(ymin = targets, ymax = targets), linetype = "dashed", width = .95, na.rm = TRUE) +
-    geom_text(aes(label = percent(growth_rate, 1), y = gr_label_position),
+    geom_text(data = df_gr %>% filter(fiscal_year == curr_fy),
+              aes(label = percent(growth_rate, 1), y = gr_label_position),
               family = "Source Sans Pro", color = trolley_grey_light, size = 9/.pt, 
               vjust = -.5, na.rm = TRUE) +
     facet_wrap(~ fct_reorder2(grr_lab, period, targets), scales = "free_y") +
     scale_y_continuous(label = label_number(scale_cut = cut_short_scale())) +
     scale_x_discrete(breaks = unique(df_gr$period)[grep("Q(1|3)", unique(df_gr$period))]) +
-    scale_fill_si("moody_blues", discrete = TRUE) +
+    scale_fill_manual(values = c(scooter_light, scooter)) +
     labs(x = NULL, y = NULL,
       title = glue("What growth rate is needed to reach the {str_replace(curr_fy, '20', 'FY')} treatment targets for USAID?") %>% toupper(),
       subtitle = "Current on treatment by region and growth rate needed in Q4 to reach target",
@@ -138,8 +158,6 @@
            baseline_pt_5 = 1) %>% 
     left_join(df_achv_lab, by = 'snu1') %>% 
     mutate(snu1_lab = fct_reorder(snu1_lab, tx_curr, max, na.rm = TRUE, .desc = TRUE))
-  
-    # unique(df_achv_viz$snu1_lab)
     
   df_achv_viz %>% 
     ggplot(aes(achievement, snu1_lab, color = achv_color)) +
@@ -170,7 +188,7 @@
                         Source: {msd_source} | US Agency for International Development | {ref_id}")) +
     si_style_nolines() +
     theme(axis.text.x = element_blank(),
-          axis.text.y = element_text(family = "Consolas"),
+          # axis.text.y = element_text(family = "Consolas"),
           strip.text.y = element_blank(),
           plot.subtitle = element_markdown(),
           strip.text = element_markdown(),
@@ -179,4 +197,206 @@
   
   si_save(paste0(curr_pd,"_TZA_tx-achv_regional.png"),
           path = "Images")
+  
+  
+
+# NEW V NET_NEW -----------------------------------------------------------
+
+  df_nn <- df %>% 
+    filter(indicator %in% c("TX_CURR", "TX_NEW", "TX_NET_NEW")) %>%
+    pluck_totals() %>% 
+    group_by(snu1, indicator, fiscal_year) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    pivot_wider(names_from = indicator,
+                names_glue = "{tolower(indicator)}") %>%
+    pivot_longer(c(tx_net_new, tx_new), 
+                 names_to = "indicator") %>% 
+    mutate(fill_color = ifelse(indicator == "tx_net_new", old_rose, denim),
+           indicator = glue("{toupper(indicator)}"),
+           share = value / tx_curr)
+  
+  df_nn %>%
+    filter(period != min(period),
+           tx_curr != 0) %>%
+    ggplot(aes(period, value, fill = fct_rev(indicator))) +
+    geom_col(alpha = .75,
+             position = position_dodge(width = .4)) +
+    geom_hline(yintercept = 0) +
+    facet_wrap(~fct_reorder2(snu1, period, tx_curr),
+               scales = "free_y") +
+    scale_y_continuous(label = label_number(scale_cut = cut_short_scale())) +
+    scale_x_discrete(label = pd_brks[2:length(pd_brks)]) +
+    scale_fill_manual(values = c("TX_NEW" = scooter,
+                                 "TX_NET_NEW" = scooter_light)) +
+    labs(x = NULL, y = NULL, fill = NULL,
+         title = glue("IMPROVED <span style='color:{scooter_light}'>NET_NEW</span> RESULTS IN LATE FY22, BUT STILL LAGGING BEHIND <span style='color:{scooter}'>TX_NEW</span>"),
+         caption = glue("Source: {msd_source} | US Agency for International Development | {ref_id}")) +
+    si_style_ygrid() +
+    theme(panel.spacing = unit(.5, "line"),
+          legend.position = "none",
+          plot.title = element_markdown(),
+          strip.text = element_markdown())
+  
+  si_save(glue("Images/{curr_pd}_TZA_region_tx-new-nn.png"),
+          scale = 1.1)  
+  
+
+# MMD ---------------------------------------------------------------------
+
+  df_mmd <- df %>% 
+    filter(indicator == "TX_CURR",
+           standardizeddisaggregate %in% c("Total Numerator", "Age/Sex/ARVDispense/HIVStatus")) %>% 
+    mutate(otherdisaggregate = case_when(is.na(otherdisaggregate) ~ "total",
+                                         TRUE ~ str_remove(otherdisaggregate, "ARV Dispensing Quantity - ")
+    ))   
+  
+  df_mmd <- df_mmd %>%
+    group_by(fiscal_year, snu1, indicator, otherdisaggregate) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    filter(value > 0)
+  
+  #create group for o3mo and o6mo via reshaping for plotting
+  df_mmd <- df_mmd %>% 
+    pivot_wider(names_from = otherdisaggregate) %>% 
+    rowwise() %>% 
+    mutate(#unknown = total - sum(`Less than 3 months`, `3 to 5 months`, `6 or more months`, na.rm = TRUE),
+      #unknown = ifelse(unknown < 0, 0, unknown),
+      o3mmd = sum(`3 to 5 months`, `6 or more months`, na.rm = TRUE)
+    ) %>%
+    ungroup() %>% 
+    rename(o6mmd = `6 or more months`) %>% 
+    select(-c(indicator, `Less than 3 months`, `3 to 5 months`)) %>% 
+    pivot_longer(-c(period, snu1, total), 
+                 names_to = "otherdisaggregate",
+                 values_to = "tx_mmd") %>% 
+    rename(tx_curr = total)
+  
+  df_mmd <- df_mmd %>% 
+    arrange(snu1, otherdisaggregate, period) %>% 
+    filter(!is.na(tx_mmd)) %>% 
+    mutate(share = tx_mmd/tx_curr)
+  
+  df_mmd <- df_mmd %>% 
+    mutate(max_tx = ifelse(period == max(period) & otherdisaggregate == "o6mmd", tx_curr, 0),
+           max_mmd = ifelse(period == max(period) & otherdisaggregate == "o6mmd", tx_mmd, 0)) %>%
+    group_by(snu1, otherdisaggregate) %>% 
+    mutate(endpoints = case_when(period %in% c(max(period), min(period))~share)) %>% 
+    group_by(snu1) %>% 
+    mutate(max_tx = max(max_tx),
+           max_mmd = max(max_mmd)) %>% 
+    ungroup() %>% 
+    mutate(snu1_lab = case_when(max_tx == max(max_tx) ~ 
+                                     glue("{snu1}<br><span style = 'font-size:8pt'>{label_number(1, scale_cut = cut_short_scale())(max_mmd)} / {label_number(1, scale_cut = cut_short_scale())(max_tx)} <span style = 'font-size:6pt'>(+6 MMD/TX_CURR)</span>"),
+                                   TRUE ~ glue("{snu1}<br><span style = 'font-size:8pt'>{label_number(1, scale_cut = cut_short_scale())(max_mmd)} / {label_number(1, scale_cut = cut_short_scale())(max_tx)}</span>")),
+           snu1_lab = str_replace(snu1_lab, "NA", "0")) %>% 
+    filter(max_tx > 0)
+  
+  
+  df_mmd <- df_mmd %>% 
+    mutate(fill_color = case_when(otherdisaggregate == "o6mmd" ~ scooter,
+                                  TRUE ~ scooter_light))
+  
+  df_mmd %>%
+    ggplot(aes(period, share, group = otherdisaggregate, color = fill_color, fill = fill_color)) +
+    geom_area(alpha = .4, size = .9, position = "identity") +
+    geom_point(aes(y = endpoints), na.rm = TRUE) +
+    facet_wrap(~fct_reorder2(snu1_lab, period, tx_curr, .desc = TRUE)) +
+    scale_y_continuous(label = percent, 
+                       breaks = seq(0, 1, .5)) +
+    scale_x_discrete(label = pd_brks[1:length(pd_brks)]) +
+    scale_color_identity(aesthetics = c("color","fill")) +
+    expand_limits(y = 1) +
+    labs(x = NULL, y = NULL,
+         title = glue("USAID HAS MADE LARGE GAINS IN FY22 TOWARDS GETTING TREATMENT PATIENTS ON <span style='color:{scooter}'>+6 MONTHS</span> OF MMD"),
+         caption = glue("MMD 3 months or more = 3-5 months and 6 months or more",  
+                        "\nSource: {msd_source} | US Agency for International Development | {ref_id}")) +
+    si_style_ygrid() +
+    theme(plot.title = element_markdown(),
+          panel.spacing.y = unit(.5, "line"),
+          panel.spacing.x = unit(.5, "line"),
+          axis.text.x = element_text(size = 9),
+          axis.text.y = element_text(size = 7),
+          panel.grid.major.y = element_line(color = "#E8E8E8"),
+          panel.grid.minor.y = element_line(color = "#E8E8E8"),
+          strip.text = element_markdown())
+  
+  
+  si_save(glue("Images/{curr_pd}_TZA_region_mmd.png"),
+          scale = 1.1)
+
+# IIT ---------------------------------------------------------------------
+
+  df_iit <- df %>% 
+    filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW")) %>%
+    pluck_totals() %>%
+    group_by(fiscal_year, snu1, psnu, indicator) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    pivot_wider(names_from = "indicator",
+                names_glue = "{tolower(indicator)}")
+  
+  df_iit <- df_iit %>%
+    group_by(psnu) %>% 
+    mutate(tx_curr_lag1 = lag(tx_curr, n = 1, order_by = period)) %>% 
+    ungroup() %>% 
+    rowwise() %>% 
+    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    ungroup()
+  
+  df_snu_lab <- df_iit %>% 
+    filter(period == max(period)) %>% 
+    count(snu1, wt = tx_curr, sort = TRUE) %>% 
+    mutate(snu1_lab = glue("{snu1} - {label_number(1, scale_cut = cut_short_scale())(n)}")) %>% 
+    # mutate(snu1_lab = ifelse(n == max(n), glue("{snu1} - {comma(n, 1)} (TX_CURR {curr_pd})"),
+    #                          glue("{snu1} - {comma(n, 1)}"))) %>% 
+    select(-n)
+  
+  # pd_brks <- df_iit %>% 
+  #   distinct(period) %>% 
+  #   filter(period != min(period)) %>% 
+  #   mutate(period = ifelse(period == max(period), period, "")) %>% 
+  #   # mutate(period = str_replace(period, "FY.*(1|3)$", "")) %>% 
+  #   pull()
+  
+  snu_tx_order <- df_iit %>% 
+    filter(period == max(period)) %>% 
+    count(snu1, wt = tx_curr, sort = TRUE) %>% 
+    pull(snu1)
+  
+  
+  df_iit %>%
+    left_join(df_snu_lab, by = "snu1") %>% 
+    mutate(snu1_lab = factor(snu1_lab, df_snu_lab$snu1_lab),
+           fiscal_year = str_sub(period, end = 4)) %>% 
+    # mutate(snu1 = factor(snu1, snu_tx_order)) %>% 
+    filter(tx_curr_lag1 != 0) %>% 
+    ggplot(aes(period, iit, size = tx_curr_lag1)) +
+    geom_point(position = position_jitter(width = .2, seed = 42),
+               na.rm = TRUE, color = scooter,
+               alpha = .2) +
+    geom_smooth(aes(weight = tx_curr_lag1, group = snu1_lab),
+                method = "loess",
+                formula = "y ~ x", se = FALSE, na.rm = TRUE,
+                size = 1.5, color = golden_sand) +
+    facet_wrap(~snu1_lab) +
+    scale_size(label = comma, guide = NULL) +
+    scale_x_discrete(labels = pd_brks[2:length(pd_brks)]) +
+    scale_y_continuous(limits = c(0,.25),
+                       label = percent_format(1),
+                       oob = oob_squish) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL,
+         size = "Site TX_CURR (1 period prior)",
+         title = glue("Sizable IIT outliers in large treatment regions like Morogoro and Ruvuma in late FY22") %>% toupper,
+         subtitle = "",
+         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%; Source: {msd_source}")) +
+    si_style() +
+    theme(panel.spacing = unit(.5, "line"),
+          axis.text = element_text(size = 8),
+          plot.subtitle = element_markdown())
+  
+  si_save(glue("Images/{curr_pd}_TZA_region_iit_lim.png"),
+          scale = 1.1)  
   
