@@ -42,7 +42,11 @@
     filter((indicator == "PMTCT_ART" & numeratordenom == "N" & otherdisaggregate == "Life-long ART, Already") | 
              (indicator == "TX_PVLS" & numeratordenom == "D" & standardizeddisaggregate == "PregnantOrBreastfeeding/Indication/HIVStatus" & otherdisaggregate %in% c("Pregnant, Routine", "Pregnant, Targeted")) ) %>% 
     clean_indicator() %>% 
-    clean_agency() %>% 
+    clean_agency()
+  
+  df_vl_pmtct <- df_vl_pmtct %>% 
+    bind_rows(df_vl_pmtct %>% 
+                mutate(funding_agency = "PEPFAR")) %>% 
     group_by(fiscal_year, operatingunit, funding_agency, indicator) %>% 
     summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
     reshape_msd(include_type = FALSE) %>% 
@@ -62,7 +66,7 @@
   
   v1 <- df_vl_pmtct %>% 
     filter(operatingunit == "Tanzania",
-           funding_agency != "DEDUP") %>% 
+           funding_agency %ni% c("PEPFAR", "DEDUP")) %>% 
     mutate(funding_agency = factor(funding_agency, c("USAID", "CDC", "DOD"))) %>% 
     ggplot(aes(period)) +
     geom_col(aes(y = pmtct_art_lag4), fill = moody_blue_light, alpha = .8) +
@@ -103,9 +107,38 @@
       caption = glue("Note: Pregnant VLC = TX_PVLS_D.Pregnant-RoutineOrTargeted / PMTCT_ART_N.LifeTimeART-Already [sum last 4 periods]
                         Source: {msd_source} | US Agency for International Development | {ref_id}"),
       theme = si_style())
-    )
 
   si_save("Graphics/FY22Q3_TZA_VLC.svg")
+  
+  
+  
+  df_vl_pmtct %>% 
+    filter(funding_agency == "PEPFAR",
+           str_detect(operatingunit, "Region", negate = TRUE)) %>% 
+    ggplot(aes(period, vlc, group = operatingunit)) +
+    geom_path(color = moody_blue_light) +
+    geom_point(shape = 21, fill = "white", color = moody_blue, stroke = 1.1, size = 20/.pt) +
+    geom_text(aes(label = percent(vlc, 1)),size = 10/.pt,
+              family = "Source Sans Pro", color = matterhorn) +
+    facet_wrap(~fct_reorder2(operatingunit, period, pmtct_art_lag4)) +
+    scale_x_discrete(breaks = pds_brks) +
+    scale_y_continuous(breaks = seq(0, 1, .25),
+                       limits = c(0, 1.25),
+                       # oob = oob_squish
+                       ) +
+    labs(x = NULL, y = NULL,
+         title = "PEPFAR VIRAL LOAD COVERAGE FOR PREGNANT WOMEN ",
+         subtitle = "Viral Load Coverage Proxy Rate") +
+    si_style_ygrid() +
+    coord_cartesian(clip = "off") +
+    theme(axis.text.y = element_blank(),
+          panel.spacing = unit(1, "picas"))
+  
+  
+  
+  
+  
+  
   
   
   v_age <- df %>% 
