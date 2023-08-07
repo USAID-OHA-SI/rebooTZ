@@ -4,7 +4,7 @@
 # REF ID:   165274ed 
 # LICENSE:  MIT
 # DATE:     2022-11-01
-# UPDATED: 
+# UPDATED:  2022-11-02
 
 
 # REQUEST -----------------------------------------------------------------
@@ -52,9 +52,14 @@
   df <- read_msd(path_genie)   
   
 
+# LIMIT TO AYS ------------------------------------------------------------
+
+  df <- df %>% 
+    filter(str_detect(prime_partner_name, "(DELOITTE|Elizabeth)"))
+
 # PERIODS -----------------------------------------------------------------
 
-  get_metadata(path_genie)
+  get_metadata(path_genie, caption_note = "AYS Partners Only")
   
   full_pds <- (min(df$fiscal_year) - 1) %>% 
     paste0("-10-01") %>% 
@@ -130,8 +135,7 @@
   
   
   si_save(paste0(metadata$curr_pd,"_TZA-_tx-curr-growth_regional.png"),
-          path = "Images",
-          scale = 1.5)
+          path = "Images")
   
   
   # df_tx %>%
@@ -199,8 +203,7 @@
           plot.subtitle = element_markdown())
   
   si_save(paste0(metadata$curr_pd,"_TZA-_tx-curr-rel-growth.png"),
-          path = "Images",
-          scale = 1.5)
+          path = "Images")
   
 # ACHIEVEMENT -------------------------------------------------------------
 
@@ -260,8 +263,7 @@
   
   
   si_save(paste0(metadata$curr_pd,"_TZA-_tx-curr-psnu-achv.png"),
-          path = "Images",
-          scale = 1.5)
+          path = "Images")
  
   
 # IIT ---------------------------------------------------------------------
@@ -345,8 +347,7 @@
           axis.text = element_text(size = 8),
           plot.subtitle = element_markdown())
   
-  si_save(glue("Images/{metadata$curr_pd}_TZA_region_iit.png"),
-          scale = 1.5)  
+  si_save(glue("Images/{metadata$curr_pd}_TZA_region_iit.png"))  
   
   
 # EID COVERAGE ------------------------------------------------------------
@@ -442,8 +443,7 @@
     )
   
   
-  si_save(glue("Images/{metadata$curr_pd}_TZA_region_eid.png"),
-          scale = 1.5)  
+  si_save(glue("Images/{metadata$curr_pd}_TZA_region_eid.png"))  
   
   
 
@@ -506,6 +506,5 @@
     theme(axis.text.x = element_blank(),
           legend.position = "none")
   
-  si_save(glue("Images/{metadata$curr_pd}_TZA_region_tb.png"),
-          scale = 1.5)
+  si_save(glue("Images/{metadata$curr_pd}_TZA_region_tb.png"))
   
