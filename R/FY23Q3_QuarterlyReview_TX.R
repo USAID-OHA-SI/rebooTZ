@@ -4,7 +4,7 @@
 # REF ID:   21f1681e 
 # LICENSE:  MIT
 # DATE:     2023-02-08
-# UPDATED:  2022-08-23
+# UPDATED:  2023-08-08
 # NOTE:     Adapted from FY22Q3_QuarterlyReview_TX.R
 
 
@@ -18,7 +18,7 @@
 #
 # Operating Unit: Tanzania,
 # Funding Agency: USAID,
-# Indicator: TX_CURR,TX_ML,TX_NET_NEW,TX_NEW,TX_RTT,
+# Indicator: TX_CURR,TX_ML,TX_NET_NEW,TX_NEW,TX_RTT,PMTCT_STAT, PMTCT_STAT_POS, PMTCT_ART
 # Fiscal Year: 2023,2022,
 
 # DEPENDENCIES ------------------------------------------------------------
@@ -36,6 +36,7 @@
   library(readxl)
   library(janitor)
   library(lubridate)
+  library(ggrepel)
   
 
 # GLOBAL VARIABLES --------------------------------------------------------
@@ -46,15 +47,11 @@
   
   peds <- c("<01", "01-04", "05-09", "10-14", "<15")
   
+  over50 <- c("50-54","55-59", "60-64", "65+")
+  
   get_metadata(genie_path, caption_note = "USAID")
   
   load_secrets("email")
-  
-  # ctc_path <- as_id("1JC9dzusGl-u8b1p_edzBm75cZQmFmHci")
-  # 
-  # metadata_ctc <- list(caption = glue("Source: Tanzania Monthly CTC through Jan 2023 | Ref id: {ref_id} | USAID"))
-  # 
-
 
 # IMPORT MER --------------------------------------------------------------
 
@@ -1021,70 +1018,324 @@
           scale = 1.1)  
   
   
-# CTC RETENTION -----------------------------------------------------------
+
+# ACHIEVEMENT - AGE/SEX ---------------------------------------------------
+
+  #aggregate to regional level
+  df_achv_age <- df %>%
+    filter(indicator %in% c("TX_CURR", "TX_NEW"),
+           standardizeddisaggregate == "Age/Sex/HIVStatus",
+           # ageasentered != "50+",
+           fiscal_year == metadata$curr_fy) 
+  
+  #resolve 50+ age for TX_NEW
+  df_achv_age <-df_achv_age %>% 
+    mutate(ageasentered = ifelse(indicator == "TX_NEW" & ageasentered %in% over50, "50+", ageasentered))
+  
+  df_achv_age <- df_achv_age %>% 
+    bind_rows(df_achv_age %>% mutate(snu1 = "USAID")) %>% 
+    group_by(fiscal_year, snu1, indicator, ageasentered, sex) %>% 
+    summarize(across(c(targets, cumulative),\(x) sum(x, na.rm = TRUE)), 
+              .groups = "drop") %>% 
+    mutate(agency = snu1 == "USAID")
+  
+  #calculate achievement
+  df_achv_age <- df_achv_age %>% 
+    adorn_achievement(metadata$curr_qtr)
+  
+  #breakout groups
+  df_achv_age <- df_achv_age %>% 
+    mutate(age_group = ifelse(ageasentered %in% peds, "Peds", "Adults"))
+
+#viz
+  df_achv_age %>% 
+    filter(indicator == "TX_CURR",
+           agency == FALSE) %>% 
+    ggplot(aes(achievement, ageasentered, color = sex)) +
+    geom_blank() +
+    annotate("rect",
+             xmin = .9, xmax = 1.1,
+             ymin = -Inf, ymax = Inf,
+             fill = scooter, alpha = .1) +
+    geom_jitter(
+      aes(size = targets), #color = trolley_grey,
+      position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+      alpha = .2) +
+    geom_point(data = df_achv_age %>% 
+                 filter(indicator == "TX_CURR",
+                        agency == TRUE), 
+               size = 6, alpha = .6, na.rm = TRUE) +
+    geom_text(data = df_achv_age %>% 
+                filter(indicator == "TX_CURR",
+                       sex == "Female",
+                       agency == TRUE), 
+              aes(label = percent_format(1)(achievement)),
+              vjust = -1,family = "Source Sans Pro") +
+    geom_text(data = df_achv_age %>% 
+                filter(indicator == "TX_CURR",
+                       sex == "Male",
+                       agency == TRUE), 
+              aes(label = percent_format(1)(achievement)),
+              vjust = 2.2,family = "Source Sans Pro") +
+    facet_grid(age_group ~ ., scales = "free", space = "free") +
+    scale_x_continuous(expand = c(.001, .001),
+                       limit=c(0,1.1),
+                       breaks = seq(0, 1, .25),
+                       oob=scales::squish,
+                       labels = label_percent(1),
+                       position = "top") +
+    scale_color_manual(values = c("Female" = moody_blue,
+                                  "Male" = genoa)) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL,
+         title = "Significant gaps between Males and Females on TX_CURR achievement between 15-39" %>% toupper,
+         subtitle = glue("Each smaller point represents regions achievement <span style='color:{genoa}'>Male</span> or <span style='color:{moody_blue}'>Female</span> | Larger + labeled points are USAID's achievement in that age band"),
+         caption = glue("Note: Achievement capped at 110% \n{metadata$caption}")) +
+    si_style() +
+    theme(panel.spacing = unit(1, "picas"),
+          strip.text.y = element_blank(),
+          plot.subtitle = element_markdown(),
+          legend.position = "none")
+  
+  si_save(glue("{metadata$curr_pd}_TZA-usaid_age_txcurr_.png"),
+          path = "Images",
+          scale = 1.1)    
+  
+  
+  
+  #viz
+  df_achv_age %>% 
+    filter(indicator == "TX_NEW",
+           agency == FALSE) %>% 
+    ggplot(aes(achievement, ageasentered, color = sex)) +
+    geom_blank() +
+    annotate("rect",
+             xmin = metadata$curr_qtr/4-.1, xmax = metadata$curr_qtr/4+.1,
+             ymin = -Inf, ymax = Inf,
+             fill = scooter, alpha = .1) +
+    geom_jitter(
+      aes(size = targets), #color = trolley_grey,
+      position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+      alpha = .2) +
+    geom_point(data = df_achv_age %>% 
+                 filter(indicator == "TX_NEW",
+                        agency == TRUE), 
+               size = 6, alpha = .6, na.rm = TRUE) +
+    geom_text(data = df_achv_age %>% 
+                filter(indicator == "TX_NEW",
+                       sex == "Female",
+                       agency == TRUE), 
+              aes(label = percent_format(1)(achievement)),
+              vjust = -1,family = "Source Sans Pro") +
+    geom_text(data = df_achv_age %>% 
+                filter(indicator == "TX_NEW",
+                       sex == "Male",
+                       agency == TRUE), 
+              aes(label = percent_format(1)(achievement)),
+              vjust = 2.2,family = "Source Sans Pro") +
+    facet_grid(age_group ~ ., scales = "free", space = "free") +
+    scale_x_continuous(expand = c(.001, .001),
+                       limit=c(0,1.1),
+                       breaks = seq(0, 1, .25),
+                       oob=scales::squish,
+                       labels = label_percent(1),
+                       position = "top") +
+    scale_color_manual(values = c("Female" = moody_blue,
+                                  "Male" = genoa)) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL,
+         title = "Major short falls in TX_NEW achievement for Males under 30" %>% toupper,
+         subtitle = glue("Each smaller point represents regions achievement <span style='color:{genoa}'>Male</span> or <span style='color:{moody_blue}'>Female</span> | Larger + labeled points are USAID's achievement in that age band"),
+         caption = glue("Note: Achievement capped at 110% \n{metadata$caption}")) +
+    si_style() +
+    theme(panel.spacing = unit(1, "picas"),
+          strip.text.y = element_blank(),
+          plot.subtitle = element_markdown(),
+          legend.position = "none")
+  
+  si_save(glue("{metadata$curr_pd}_TZA-usaid_age_txnew_.png"),
+          path = "Images",
+          scale = 1.1)    
 
   
-  df_ret <- df_ctc %>% 
-    select(report_period, region, contains("ret")) %>% 
-    mutate(report_period = excel_numeric_to_date(as.numeric(report_period)),
-          across(contains("ret"), as.numeric)) %>% 
-    filter(report_period >= as.Date("2021-10-01"))
+
+# MMD - AGE/SEX -----------------------------------------------------------
+
     
-  df_ret <- df_ret %>% 
-    pivot_longer(-c(report_period, region),
-                 names_to = "indicator") %>% 
-    count(report_period, region, indicator, wt = value, name = "value")
+  df_mmd_age <- df %>% 
+    filter(indicator == "TX_CURR",
+           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARVDispense/HIVStatus")) %>% 
+    mutate(otherdisaggregate = case_when(is.na(otherdisaggregate) ~ "total",
+                                         TRUE ~ str_remove(otherdisaggregate, "ARV Dispensing Quantity - ")
+    ))   
   
-  df_ret <- df_ret %>%
-    mutate(nd = ifelse(str_detect(indicator, "denom"), "D", "N"),
-           type = case_when(str_detect(indicator, "early") ~ "Early",
-                            str_detect(indicator, "recent") ~ "Recent",
-                            str_detect(indicator, "12mo") ~ "Long"),
-           age = ifelse(str_detect(indicator, "15"), "<15", "15+"),
-           indicator = "TX_RETENTION") %>%
-    pivot_wider(names_from = "nd") %>% 
-    mutate(retention = N/D,
-           type = factor(type, c("Early", "Recent", "Long")))
+  df_mmd_age <- df_mmd_age %>%
+    group_by(fiscal_year, snu1, indicator, trendscoarse, sex, otherdisaggregate) %>% 
+    summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    filter(value > 0)
   
-  df_ret <- df_ret %>% 
-    mutate(pt = case_when(report_period == min(report_period) | report_period == max(report_period) ~ retention))
+  #create group for o3mo and o6mo via reshaping for plotting
+  df_mmd_age <- df_mmd_age %>% 
+    pivot_wider(names_from = otherdisaggregate) %>% 
+    rowwise() %>% 
+    mutate(#unknown = total - sum(`Less than 3 months`, `3 to 5 months`, `6 or more months`, na.rm = TRUE),
+      #unknown = ifelse(unknown < 0, 0, unknown),
+      o3mmd = sum(`3 to 5 months`, `6 or more months`, na.rm = TRUE)
+    ) %>%
+    ungroup() %>% 
+    rename(o6mmd = `6 or more months`) %>% 
+    select(-c(indicator, `Less than 3 months`, `3 to 5 months`)) %>% 
+    pivot_longer(-c(period, snu1, sex, trendscoarse, total), 
+                 names_to = "otherdisaggregate",
+                 values_to = "tx_mmd") %>% 
+    rename(tx_curr = total)
   
-  df_ret %>% 
-    filter(age == "15+") %>% 
-    ggplot(aes(report_period, retention, color = type, group = type)) +
-    geom_line() +
-    geom_point(aes(y = pt), na.rm = TRUE) +
-    facet_wrap(~fct_reorder2(region, report_period, D)) +
-    scale_x_date(date_labels = "%b %y") +
-    scale_y_continuous(label = percent) +
-    scale_color_si(palette = "scooters", discrete = TRUE) +
-    labs(x = NULL, y = NULL, color = NULL,
-         title = "NO MAJOR CONCERNS WITH RETENTION IN LARGER REGIONS",
-         caption = glue("Source: {metadata_ctc}")) +
-    si_style_ygrid() +
-    theme(panel.spacing = unit(.5, "line"))
+  df_mmd_age <- df_mmd_age %>% 
+    arrange(snu1, otherdisaggregate, period) %>% 
+    filter(!is.na(tx_mmd)) %>% 
+    mutate(share = tx_mmd/tx_curr)
   
-  si_save(glue("{metadata$curr_pd}_TZA_CTC_retention.png"),
+  df_mmd_age <- df_mmd_age %>% 
+    filter(period == max(period),
+           otherdisaggregate == "o6mmd")
+    
+  df_mmd_age %>% 
+    ggplot(aes(share, fct_reorder(snu1, tx_curr, sum), color = sex, group = snu1)) +
+    geom_line(color = "#D3D3D3") +
+    geom_point(aes(size = tx_curr), color = "white") +
+    geom_point(aes(size = tx_curr), alpha = .5) +
+    # geom_segment(aes(xend = share, yend = snu1)) +
+    facet_wrap(.~trendscoarse)+
+    coord_cartesian(clip = "off") +
+    scale_color_manual(values = c("Female" = moody_blue,
+                                  "Male" = genoa)) +
+    scale_x_continuous(limits = c(0, 1.01), oob = squish,
+                       label = percent_format(),
+                       position = "top") +
+    labs(x = NULL, y = NULL,
+         title = "Large sex gaps in 6MMD pick up for Peds and for smaller regions" %>% toupper,
+         subtitle = glue("Each point represents region's share of TX_CURR on 6mo MMD for <span style='color:{genoa}'>Males</span> and <span style='color:{moody_blue}'>Females</span>"),
+         caption = glue("Note: MMD share capped at 101% \n{metadata$caption}")) +
+    si_style_xgrid() +
+    theme(legend.position = "none",
+          strip.placement = "outside",
+          plot.subtitle = element_markdown())
+  
+  
+  si_save(glue("{metadata$curr_pd}_TZA-usaid_age_mmd_.png"),
           path = "Images",
-          scale = 1.1)  
+          scale = 1.1)    
+
+  
+# PMTCT -------------------------------------------------------------------
+
+    
+  df_pmtct_linked <- df %>% 
+    filter(indicator %in% c("PMTCT_ART", "PMTCT_STAT_POS"),
+           fiscal_year == metadata$curr_fy) %>% 
+    pluck_totals() %>% 
+    clean_indicator() %>% 
+    group_by(fiscal_year, snu1, psnu, indicator) %>% 
+    summarise(value = sum(cumulative, na.rm = TRUE), 
+              .groups = "drop") %>% 
+    pivot_wider(names_from = indicator,
+                names_glue = "{tolower(indicator)}") %>% 
+    filter(pmtct_art_d > 0) %>% 
+    mutate(linked = pmtct_art / pmtct_stat_pos)
+
   
   
-  df_ret %>% 
-    filter(age == "<15") %>% 
-    ggplot(aes(report_period, retention, color = type, group = type)) +
-    geom_line() +
-    geom_point(aes(y = pt), na.rm = TRUE) +
-    facet_wrap(~fct_reorder2(region, report_period, D)) +
-    scale_x_date(date_labels = "%b %y") +
-    scale_y_continuous(label = percent) +
-    scale_color_si(palette = "golden_sands", discrete = TRUE) +
-    labs(x = NULL, y = NULL, color = NULL,
-         title = "NO MAJOR CONCERNS WITH PEDS RETENTION IN LARGER REGIONS",
-         caption = glue("Source: {metadata_ctc}")) +
-    si_style_ygrid() +
-    theme(panel.spacing = unit(.5, "line"))
+  v_p_linked <- df_pmtct_linked %>% 
+    ggplot(aes(linked, fct_reorder(snu1, pmtct_art_d, sum))) +
+    geom_jitter(aes(size = pmtct_art_d),
+                color = moody_blue,
+                position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+                alpha = .4) +
+    geom_text_repel(data = df_pmtct_linked %>% filter(linked <.9 | linked > 1.1),
+                    aes(label = psnu),
+                    family = "Source San Pro", color = matterhorn) +
+    scale_x_continuous(label = percent_format(), position = "top") +
+    scale_size(guide = "none") +
+    labs(x = NULL, y = NULL,
+         # title = "PMTCT ART Linkage hovers around 100% with a few outliers" %>% toupper,
+         subtitle = glue("Each point represents council's Proxy PMTCT Linked to ART"),
+         # caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{metadata$caption}")
+         ) +
+    theme(legend.position = "none") +
+    si_style()
   
-  si_save(glue("{metadata$curr_pd}_TZA_CTC-peds-retention.png"),
+  
+  v_p_artd <- df_pmtct_linked %>% 
+    count(snu1, wt = pmtct_art_d, name = "pmtct_art_d") %>% 
+    ggplot(aes(pmtct_art_d, fct_reorder(snu1, pmtct_art_d, sum))) +
+    geom_col(fill = moody_blue) +
+    scale_x_continuous(label = comma_format(),
+                       position = "top") +
+    labs(x = NULL, y = NULL,
+         subtitle = "PMTCT_ART_D") +
+    theme(legend.position = "none") +
+    si_style()
+  
+  
+  v_p_artd + v_p_linked +
+    plot_annotation(title = "PMTCT ART Linkage hovers around 100% with a few outliers" %>% toupper,
+                    caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{metadata$caption}"),
+                    theme = si_style())
+  
+  
+  
+  si_save(glue("{metadata$curr_pd}_TZA-usaid_pmtct_linked_.png"),
           path = "Images",
-          scale = 1.1)  
+          scale = 1.1) 
+  
+  df_pmct_new <- df %>% 
+    filter(indicator == "PMTCT_ART",
+           standardizeddisaggregate == "Age/NewExistingArt/Sex/HIVStatus",
+           fiscal_year == metadata$curr_fy) %>% 
+    mutate(otherdisaggregate = str_remove(otherdisaggregate, "Life-long ART, ")) %>% 
+    group_by(fiscal_year, snu1, psnu, indicator,otherdisaggregate) %>% 
+    summarise(value = sum(cumulative, na.rm = TRUE), 
+              .groups = "drop") %>% 
+    pivot_wider(names_from = otherdisaggregate,
+                names_glue = "{tolower(otherdisaggregate)}",
+                values_fill = 0) %>% 
+    mutate(total = new + already,
+           share_new = new / total)
+  
+  
+  
+  
+  v_p_new <- df_pmct_new %>% 
+    ggplot(aes(share_new, fct_reorder(snu1, total, sum))) +
+    geom_jitter(aes(size = total),
+                color = moody_blue,
+                position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+                alpha = .4) +
+    scale_x_continuous(label = percent_format(), position = "top") +
+    scale_size(guide = "none") +
+    coord_cartesian(clip = "off")+
+    labs(x = NULL, y = NULL,
+         subtitle = glue("Each point represents council's PMTCT newly initiated"),
+    ) +
+    theme(legend.position = "none") +
+    si_style()
+  
+  
+  v_p_new_bar <- df_pmct_new %>% 
+    count(snu1, wt = total, name = "total") %>% 
+    ggplot(aes(total, fct_reorder(snu1, total, sum))) +
+    geom_col(fill = moody_blue) +
+    scale_x_continuous(label = comma_format(),
+                       position = "top") +
+    labs(x = NULL, y = NULL,
+         subtitle = "PMTCT_ART (New + Already)") +
+    theme(legend.position = "none") +
+    si_style()
+  
+  
+  v_p_new_bar + v_p_new +
+    plot_annotation(title = "What share of HIV+ clinets in ANC1 are new to Tx?" %>% toupper,
+                    caption = metadata$caption,
+                    theme = si_style())
   
