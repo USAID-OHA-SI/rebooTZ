@@ -1339,3 +1339,7 @@
                     caption = metadata$caption,
                     theme = si_style())
   
+  si_save(glue("{metadata$curr_pd}_TZA-usaid_pmtct_new.png"),
+          path = "Images",
+          scale = 1.1) 
+  
