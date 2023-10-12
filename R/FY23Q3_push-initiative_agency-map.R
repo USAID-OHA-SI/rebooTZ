@@ -73,6 +73,7 @@
   
   sf_plhiv <- full_join(df_plhiv, shp_tza_snu1)
   
+  
   df_agencies <- df_msd %>% 
     filter(indicator == "TX_CURR",
            psnu != "_Military Tanzania",
@@ -90,27 +91,50 @@
   sf_agencies <- full_join(df_agencies, shp_tza_snu1)
   
   
-  df_msd %>% 
-    clean_indicator() %>% 
-    filter(indicator %in% c("TX_CURR"),
-           snu1 %in% filter(df_agencies, funding_agency == "USAID")$snu1,
-           funding_agency == "USAID") %>% 
+  df_tx <-  df_msd %>% 
+    filter(indicator == "TX_CURR",
+           psnu != "_Military Tanzania",
+           fiscal_year == metadata$curr_fy) %>% 
     pluck_totals() %>% 
-    # distinct(snu1, prime_partner_name) %>% 
-    distinct(snu1, prime_partner_name, mech_name) %>% 
-    mutate(prime_partner_name = case_match(prime_partner_name,
-                                       "DELOITTE CONSULTING LIMITED" ~ "[Deloitte]",
-                                       "Elizabeth Glaser Pediatric Aids Foundation" ~ "[EGPAF]",
-                                       "TANZANIA HEALTH PROMOTION SUPP ORT (THPS)"~ "[THPS]",
-                                       "Family Health International" ~ "[FHI]"),
-           mech_name = case_match(mech_name,
-                                  "Meeting Targets and Maintaining Epidemic Control (EpiC)" ~ "EpiC",
-                                  "USAID Tulonge Afya" ~ "Tulonge Afya",
-                                  .default = mech_name)) %>% 
-    unite(partner, c(mech_name, prime_partner_name), sep = " ") %>% 
-    arrange(snu1, partner) %>% 
-    group_by(snu1) %>% 
-    summarise(partner = paste0(partner, collapse = ", "))
+    count(snu1, snu1uid, wt = cumulative, name = "tx_curr")
+  
+  df_tx <- df_tx %>% 
+    left_join(df_subnat %>% 
+                filter(indicator == "PLHIV",
+                       fiscal_year ==metadata$curr_fy) %>% 
+                pluck_totals() %>% 
+                count(snu1, snu1uid, wt = targets, name = "plhiv")) %>% 
+    mutate(saturation = tx_curr / plhiv) %>% 
+    # mutate(snu_lab = glue("{snu1}
+    #                       {saturation}"))
+    mutate(snu_lab = glue("{snu1}
+                          {label_percent(1)({saturation})}"))
+  
+  sf_tx <- df_tx %>% 
+    left_join(df_agencies) %>% 
+    full_join(shp_tza_snu1)
+  
+  # df_msd %>% 
+  #   clean_indicator() %>% 
+  #   filter(indicator %in% c("TX_CURR"),
+  #          snu1 %in% filter(df_agencies, funding_agency == "USAID")$snu1,
+  #          funding_agency == "USAID") %>% 
+  #   pluck_totals() %>% 
+  #   # distinct(snu1, prime_partner_name) %>% 
+  #   distinct(snu1, prime_partner_name, mech_name) %>% 
+  #   mutate(prime_partner_name = case_match(prime_partner_name,
+  #                                      "DELOITTE CONSULTING LIMITED" ~ "[Deloitte]",
+  #                                      "Elizabeth Glaser Pediatric Aids Foundation" ~ "[EGPAF]",
+  #                                      "TANZANIA HEALTH PROMOTION SUPP ORT (THPS)"~ "[THPS]",
+  #                                      "Family Health International" ~ "[FHI]"),
+  #          mech_name = case_match(mech_name,
+  #                                 "Meeting Targets and Maintaining Epidemic Control (EpiC)" ~ "EpiC",
+  #                                 "USAID Tulonge Afya" ~ "Tulonge Afya",
+  #                                 .default = mech_name)) %>% 
+  #   unite(partner, c(mech_name, prime_partner_name), sep = " ") %>% 
+  #   arrange(snu1, partner) %>% 
+  #   group_by(snu1) %>% 
+  #   summarise(partner = paste0(partner, collapse = ", "))
 
   
   shp_usaid <- full_join(shp_tza_snu1, df_agencies) %>% 
@@ -155,4 +179,21 @@
   m1 + m2 
   
   si_save("Images/tza_usaid_presence.png")
+  
+  
+  m3 <- ggplot() +
+    geom_sf(aes(fill = saturation, geometry = geometry),
+            data = sf_tx, alpha = .8,
+            color = "gray", na.rm = TRUE) +
+    geom_sf_text(aes(label = snu_lab, geometry = geometry),
+                 data = sf_tx %>% filter(funding_agency == "USAID"),
+                 family = "Source Sans Pro", color = grey10k) +
+    scale_fill_viridis_c(label = label_percent(), direction = -1) +
+    labs(x = "", y = "", fill = glue("ART Saturation (thru {metadata$curr_pd})"),
+         caption = str_replace(metadata$caption, "MSD", "MER + NAT_SUBNAT")) +
+    si_style_map() +
+    si_legend_fill()
+  
+  m1 + m3
+  si_save("Images/tza_usaid_saturation.png")
   
