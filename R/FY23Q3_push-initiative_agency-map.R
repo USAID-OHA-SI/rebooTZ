@@ -4,7 +4,7 @@
 # REF ID:   96c239cf 
 # LICENSE:  MIT
 # DATE:     2023-10-04
-# UPDATED: 
+# UPDATED:  2023-10-13
 
 # DEPENDENCIES ------------------------------------------------------------
   
@@ -146,7 +146,7 @@
 # VIZ ---------------------------------------------------------------------
 
    
-    m1 <- ggplot() +
+  m1 <- ggplot() +
     geom_sf(aes(fill = plhiv, geometry = geometry),
             data = sf_plhiv, alpha = .8,
             color = "gray", na.rm = TRUE) +
@@ -188,7 +188,7 @@
     geom_sf_text(aes(label = snu_lab, geometry = geometry),
                  data = sf_tx %>% filter(funding_agency == "USAID"),
                  family = "Source Sans Pro", color = grey10k) +
-    scale_fill_viridis_c(label = label_percent(), direction = -1) +
+    scale_fill_viridis_c(label = label_percent(), option = "B", end = .7, direction = -1) +
     labs(x = "", y = "", fill = glue("ART Saturation (thru {metadata$curr_pd})"),
          caption = str_replace(metadata$caption, "MSD", "MER + NAT_SUBNAT")) +
     si_style_map() +
