@@ -4,7 +4,7 @@
 # REF ID:   d29c4e17 
 # LICENSE:  MIT
 # DATE:     2024-02-11
-# UPDATED:  2024-02-12
+# UPDATED:  2024-02-14
 # NOTE:     Adapted from FY23Q3_QuarterlyReview_TX.R
 
 
@@ -47,6 +47,8 @@
   peds <- c("<01", "01-04", "01-09", "05-09", "10-14", "<15")
   
   over50 <- c("50-54","55-59", "60-64", "65+")
+  
+  curr_limiter <- 75
   
   get_metadata(genie_path, caption_note = "USAID")
   
@@ -279,15 +281,12 @@
 
   #aggregate to regional level
   df_achv <- df %>%
-    bind_rows(df %>% 
-                mutate(psnu = snu1)) %>% 
     filter(indicator %in% c("TX_CURR", "TX_NEW"),
            fiscal_year == metadata$curr_fy) %>% 
     pluck_totals() %>% 
-    group_by(fiscal_year, snu1, psnu, indicator) %>% 
+    group_by(fiscal_year, snu1, indicator) %>% 
     summarize(across(c(targets, cumulative),\(x) sum(x, na.rm = TRUE)), 
-              .groups = "drop") %>% 
-    mutate(region = psnu == snu1)
+              .groups = "drop") 
   
   #calculate achievement
   df_achv <- df_achv %>% 
@@ -295,7 +294,6 @@
   
   
   df_achv_lab <- df_achv %>%
-    filter(region == TRUE) %>% 
     select(snu1, indicator, targets) %>% 
     pivot_wider(names_from = indicator,
                 names_glue = "{tolower(indicator)}",
@@ -305,7 +303,7 @@
 
   #viz adjustments
   df_achv_viz <- df_achv %>%
-    mutate(snu1_achv = case_when(region == TRUE ~ achievement),
+    mutate(snu1_achv = achievement,
            baseline_pt_1 = 0,
            baseline_pt_2 = .25,
            baseline_pt_3 = .5,
@@ -323,13 +321,8 @@
     geom_point(aes(baseline_pt_3), shape = 3, color = "#D3D3D3") +
     geom_point(aes(baseline_pt_4), shape = 3, color = "#D3D3D3") +
     geom_point(aes(baseline_pt_5), shape = 3, color = "#D3D3D3") +
-    geom_jitter(data = filter(df_achv_viz, region == FALSE),
-                position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
-                alpha = .4, size = 3) +
-    geom_point(data = filter(df_achv_viz, region == TRUE),
-               size = 8, alpha = .8, na.rm = TRUE) +
-    geom_text(data = filter(df_achv_viz, region == TRUE),
-              aes(label = percent(achievement, 1)), na.rm = TRUE,
+    geom_point(size = 8, alpha = .8, na.rm = TRUE) +
+    geom_text(aes(label = percent(achievement, 1)), na.rm = TRUE,
               color = "#202020", family = "Source Sans Pro", size = 9/.pt) +
     coord_cartesian(clip = "off") +
     scale_x_continuous(limit=c(0,1.1),oob=scales::squish) +
@@ -337,7 +330,7 @@
     facet_grid(snu1_lab ~ indicator, scales = "free_y") +
     labs(x = NULL, y = NULL,
          title = glue("{metadata$curr_pd} Tanzania | USAID") %>% toupper,
-         subtitle = glue("Regional achievement (large, labeled points) with council reference points<br>
+         subtitle = glue("Regional target achievement<br>
                          <span style = 'font-size:11pt;color:{color_caption};'>Goal for {percent(.25*metadata$curr_qtr)} at Q{metadata$curr_qtr} (snapshot indicators pegged to year end target 100%)</span>"),
          caption = glue("Note: Target achievement capped at 110%
                         {metadata$caption}")) +
@@ -358,16 +351,13 @@
 
   #aggregate to regional level
   df_achv_peds <- df %>%
-    bind_rows(df %>% 
-                mutate(psnu = snu1)) %>% 
     filter(indicator %in% c("TX_CURR", "TX_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
            trendscoarse %in% "<15",
            fiscal_year == metadata$curr_fy) %>% 
     group_by(fiscal_year, snu1, psnu, indicator) %>% 
     summarize(across(c(targets, cumulative), \(x) sum(x, na.rm = TRUE)), 
-              .groups = "drop") %>% 
-    mutate(region = psnu == snu1)
+              .groups = "drop")
   
   #calculate achievement
   df_achv_peds <- df_achv_peds %>% 
@@ -375,7 +365,6 @@
   
   
   df_achv_peds_lab <- df_achv_peds %>%
-    filter(region == TRUE) %>% 
     select(snu1, indicator, targets) %>% 
     pivot_wider(names_from = indicator,
                 names_glue = "{tolower(indicator)}",
@@ -385,7 +374,7 @@
   
   #viz adjustments
   df_achv_peds_viz <- df_achv_peds %>%
-    mutate(snu1_achv = case_when(region == TRUE ~ achievement),
+    mutate(snu1_achv = achievement,
            baseline_pt_1 = 0,
            baseline_pt_2 = .25,
            baseline_pt_3 = .5,
@@ -403,13 +392,8 @@
     geom_point(aes(baseline_pt_3), shape = 3, color = "#D3D3D3") +
     geom_point(aes(baseline_pt_4), shape = 3, color = "#D3D3D3") +
     geom_point(aes(baseline_pt_5), shape = 3, color = "#D3D3D3") +
-    geom_jitter(data = filter(df_achv_peds_viz, region == FALSE),
-                position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
-                alpha = .4, size = 3) +
-    geom_point(data = filter(df_achv_peds_viz, region == TRUE),
-               size = 8, alpha = .8, na.rm = TRUE) +
-    geom_text(data = filter(df_achv_peds_viz, region == TRUE),
-              aes(label = percent(achievement, 1)), na.rm = TRUE,
+    geom_point(size = 8, alpha = .8, na.rm = TRUE) +
+    geom_text(aes(label = percent(achievement, 1)), na.rm = TRUE,
               color = "#202020", family = "Source Sans Pro", size = 9/.pt) +
     coord_cartesian(clip = "off") +
     scale_x_continuous(limit=c(0,1.1),oob=scales::squish) +
@@ -417,7 +401,7 @@
     facet_grid(snu1_lab ~ indicator, scales = "free_y") +
     labs(x = NULL, y = NULL,
          title = glue("{metadata$curr_pd} Tanzania | PEDS | USAID") %>% toupper,
-         subtitle = glue("Regional achievement (large, labeled points) with council reference points<br>
+         subtitle = glue("Regional target achievement<br>
                          <span style = 'font-size:11pt;color:{color_caption};'>Goal for {percent(.25*metadata$curr_qtr)} at Q{metadata$curr_qtr} (snapshot indicators pegged to year end target 100%)</span>"),
          caption = glue("Note: Target achievement capped at 110%
                          {metadata$caption}")) +
@@ -463,7 +447,7 @@
     scale_fill_manual(values = c("TX_NEW" = scooter,
                                  "TX_NET_NEW" = scooter_light)) +
     labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("IMPROVED <span style='color:{scooter_light}'>NET_NEW</span> RESULTS, BUT STILL LAGGING BEHIND <span style='color:{scooter}'>TX_NEW</span> IN A NUMBER OF REGIONS"),
+         title = glue("DECLINING <span style='color:{scooter}'>TX_NEW</span> TREND COUPLED WITH INCREASING GAP WITH <span style='color:{scooter_light}'>NET_NEW</span> ACROSS REGIONS"),
          caption = glue("{metadata$caption}")) +
     si_style_ygrid() +
     theme(panel.spacing = unit(.5, "line"),
@@ -489,13 +473,17 @@
                 names_glue = "{tolower(indicator)}") %>%
     pivot_longer(c(tx_net_new, tx_new), 
                  names_to = "indicator") %>% 
+    mutate(max_tx = ifelse(period == max(period), tx_curr, 0)) %>% 
+    group_by(snu1) %>% 
+    mutate(max_tx = max(max_tx)) %>% 
+    ungroup() %>% 
     mutate(fill_color = ifelse(indicator == "tx_net_new", old_rose, denim),
            indicator = glue("{toupper(indicator)}"),
            share = value / tx_curr)
   
   df_nn_peds %>%
     filter(period != min(period),
-           tx_curr != 0) %>%
+           max_tx > curr_limiter) %>%
     ggplot(aes(period, value, fill = fct_rev(indicator))) +
     geom_col(alpha = .75, na.rm = TRUE,
              position = position_dodge(width = .4)) +
@@ -507,7 +495,8 @@
     scale_fill_manual(values = c("TX_NEW" = golden_sand,
                                  "TX_NET_NEW" = golden_sand_light)) +
     labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("GAPS STILL EXIST BETWEEN PEDS <span style='color:{golden_sand_light}'>NET_NEW</span> RESULTS AND <span style='color:{golden_sand}'>TX_NEW</span>"),
+         title = glue("DECLINING PEDS <span style='color:{golden_sand}'>TX_NEW</span> TREND COUPLED WITH INCREASING GAP WITH <span style='color:{golden_sand_light}'>NET_NEW</span> ACROSS REGIONS"),
+         subtitle = glue("Limited to regions with more than {curr_limiter} TX_CURR <15"),
          caption = glue("{metadata$caption}")) +
     si_style_ygrid() +
     theme(panel.spacing = unit(.5, "line"),
@@ -550,7 +539,7 @@
     scale_fill_manual(values = c("TX_NEW" = moody_blue,
                                  "TX_NET_NEW" = moody_blue_light)) +
     labs(x = NULL, y = NULL, fill = NULL,
-         title = glue("INCREASED GAP BETWEEN  <span style='color:{moody_blue}'>TX_NEW</span> and <span style='color:{moody_blue_light}'>NET_NEW</span> RESULTS IN FY23Q3"),
+         title = glue("INCREASING GAP BETWEEN  <span style='color:{moody_blue}'>TX_NEW</span> AND <span style='color:{moody_blue_light}'>NET_NEW</span> RESULTS SINCE FY23"),
          caption = glue("{metadata$caption}")) +
     si_style_ygrid() +
     theme(panel.spacing = unit(.5, "line"),
@@ -633,9 +622,8 @@
     scale_color_identity(aesthetics = c("color","fill")) +
     expand_limits(y = 1) +
     labs(x = NULL, y = NULL,
-         title = glue("USAID HAS MADE LARGE GAINS TOWARDS GETTING TREATMENT PATIENTS ON <span style='color:{scooter}'>+6 MONTHS</span> OF MMD"),
-         caption = glue("Note: MMD 3 months or more = 3-5 months and 6 months or more
-                        {metadata$caption}")) +
+         title = glue("USAID HAS SEEN A PLATEAU IN MOVING TREATMENT PATIENTS TO <span style='color:{scooter}'>+6 MONTHS</span> OF MMD"),
+         caption = metadata$caption) +
     si_style_ygrid() +
     theme(plot.title = element_markdown(),
           panel.spacing.y = unit(.5, "line"),
@@ -714,7 +702,8 @@
                                   TRUE ~ golden_sand_light))
   
   df_mmd_peds %>%
-    filter(otherdisaggregate == "o6mmd") %>%
+    filter(otherdisaggregate == "o6mmd",
+           max_tx > curr_limiter) %>%
     ggplot(aes(period, share, group = otherdisaggregate, color = fill_color, fill = fill_color)) +
     geom_area(alpha = .4, linewidth = .9, position = "identity") +
     geom_point(aes(y = endpoints), na.rm = TRUE) +
@@ -726,8 +715,8 @@
     scale_color_identity(aesthetics = c("color","fill")) +
     expand_limits(y = 1) +
     labs(x = NULL, y = NULL,
-         title = glue("USAID HAS MADE SLOWER GAINS TOWARDS GETTING PEDS ON TREATMENT ON <span style='color:{golden_sand}'>+6 MONTHS</span> OF MMD"),
-         caption = glue("MMD 3 months or more = 3-5 months and 6 months or more
+         title = glue("GAINS TOWARDS GETTING PEDS ON <span style='color:{golden_sand}'>+6 MONTHS</span> OF MMD REMAINS LOWER THAN ADULT SHARES"),
+         caption = glue("Regions limited to those with more than {curr_limiter} TX_CURR <15
          {metadata$caption}")) +
     si_style_ygrid() +
     theme(plot.title = element_markdown(),
@@ -807,7 +796,7 @@
       geom_area(alpha = .4, linewidth = .9, position = "identity") +
       geom_point(aes(y = endpoints), na.rm = TRUE) +
       geom_text(aes(y = endpoints, label = label_percent(accuracy = 1)(endpoints)),
-                color = matterhorn, family = "Source Sans Pro", hjust = -.2) +
+                color = matterhorn, family = "Source Sans Pro", vjust = -.5) +
       facet_wrap(~fct_reorder2(funding_agency_lab, period, tx_curr, .desc = TRUE)) +
       scale_y_continuous(label = percent, 
                          limit=c(0,1.1), oob=scales::squish,
@@ -815,9 +804,8 @@
       scale_color_identity(aesthetics = c("color","fill")) +
       expand_limits(y = 1) +
       labs(x = NULL, y = NULL,
-           title = glue("USAID HAS MADE LARGE GAINS TOWARDS GETTING TREATMENT PATIENTS ON <span style='color:{scooter}'>+6 MONTHS</span> OF MMD"),
-           caption = glue("Note: MMD 3 months or more = 3-5 months and 6 months or more
-                        {metadata$caption}")) +
+           title = glue("USAID HAS SEEN A PLATEAU IN MOVING TREATMENT PATIENTS TO <span style='color:{moody_blue}'>+6 MONTHS</span> OF MMD"),
+           caption = metadata$caption) +
       si_style_ygrid() +
       theme(plot.title = element_markdown(),
             panel.grid.major.y = element_line(color = "#E8E8E8"),
@@ -879,15 +867,15 @@
     facet_wrap(~snu1_lab) +
     scale_size(label = comma, guide = NULL) +
     scale_x_discrete(labels = pd_brks[2:length(pd_brks)]) +
-    scale_y_continuous(limits = c(0,.25),
+    scale_y_continuous(limits = c(0,.16),
                        label = percent_format(1),
                        oob = oob_squish) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL,
          size = "Site TX_CURR (1 period prior)",
-         title = glue("Overall declines IIT in {metadata$curr_fy_lab} across USAID/Tanzania") %>% toupper,
-         subtitle = "",
-         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%
+         title = glue("Regional increases in IIT in {metadata$curr_pd} across USAID/Tanzania") %>% toupper,
+         subtitle = "Each point represents a council's IIT",
+         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
                         {metadata$caption}")) +
     si_style() +
     theme(panel.spacing = unit(.5, "line"),
@@ -906,15 +894,17 @@
     filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARTNoContactReason/HIVStatus"),
            trendscoarse == "<15") %>%
-    group_by(fiscal_year, snu1, psnu, indicator) %>% 
+    group_by(fiscal_year, snu1, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
     reshape_msd(include_type = FALSE) %>% 
     pivot_wider(names_from = "indicator",
                 names_glue = "{tolower(indicator)}")
   
   df_iit_peds <- df_iit_peds %>%
-    group_by(psnu) %>% 
-    mutate(tx_curr_lag1 = lag(tx_curr, n = 1, order_by = period)) %>% 
+    mutate(tx_max = ifelse(period == max(period), tx_curr, 0)) %>% 
+    group_by(cop22_psnu) %>% 
+    mutate(tx_curr_lag1 = lag(tx_curr, n = 1, order_by = period),
+           tx_max = max(tx_max)) %>% 
     ungroup() %>% 
     rowwise() %>% 
     mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
@@ -939,7 +929,8 @@
     mutate(snu1_lab = factor(snu1_lab, df_snu_lab_peds$snu1_lab),
            fiscal_year = str_sub(period, end = 4)) %>% 
     # mutate(snu1 = factor(snu1, snu_tx_order)) %>% 
-    filter(tx_curr_lag1 != 0) %>% 
+    filter(tx_curr_lag1 != 0,
+           tx_max > curr_limiter) %>% 
     ggplot(aes(period, iit, size = tx_curr_lag1)) +
     geom_point(position = position_jitter(width = .2, seed = 42),
                na.rm = TRUE, color = golden_sand,
@@ -951,15 +942,16 @@
     facet_wrap(~snu1_lab) +
     scale_size(label = comma, guide = NULL) +
     scale_x_discrete(labels = pd_brks[2:length(pd_brks)]) +
-    scale_y_continuous(limits = c(0,.25),
+    scale_y_continuous(limits = c(0,.16),
                        label = percent_format(1),
                        oob = oob_squish) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL,
          size = "Site TX_CURR (1 period prior)",
-         title = glue("Overall declines IIT in {metadata$curr_fy_lab} across USAID/Tanzania") %>% toupper,
-         subtitle = "",
-         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%
+         title = glue("Regional increases in Peds IIT in {metadata$curr_pd} across USAID/Tanzania") %>% toupper,
+         subtitle = "Each point represents a council's IIT",
+         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
+                        Regions limited to more than {curr_limiter} TX_CURR <15
                         {metadata$caption}")) +
     si_style() +
     theme(panel.spacing = unit(.5, "line"),
@@ -976,14 +968,14 @@
   df_iit_usaid <- df %>% 
     filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW")) %>%
     pluck_totals() %>%
-    group_by(fiscal_year, funding_agency, psnu, indicator) %>% 
+    group_by(fiscal_year, funding_agency, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
     reshape_msd(include_type = FALSE) %>% 
     pivot_wider(names_from = "indicator",
                 names_glue = "{tolower(indicator)}")
   
   df_iit_usaid <- df_iit_usaid %>%
-    group_by(psnu) %>% 
+    group_by(cop22_psnu) %>% 
     mutate(tx_curr_lag1 = lag(tx_curr, n = 1, order_by = period)) %>% 
     ungroup() %>% 
     rowwise() %>% 
@@ -999,18 +991,18 @@
     geom_smooth(aes(weight = tx_curr_lag1, group = funding_agency),
                 method = "loess",
                 formula = "y ~ x", se = FALSE, na.rm = TRUE,
-                size = 1.5, color = burnt_sienna) +
+                linewidth = 1.1, color = burnt_sienna) +
     scale_size(label = comma, guide = NULL) +
     scale_x_discrete(labels = pd_brks[2:length(pd_brks)]) +
-    scale_y_continuous(limits = c(0,.25),
+    scale_y_continuous(limits = c(0,.15),
                        label = percent_format(1),
                        oob = oob_squish) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL,
          size = "Site TX_CURR (1 period prior)",
-         title = glue("Overall declines IIT in {metadata$curr_fy_lab} across USAID/Tanzania") %>% toupper,
+         title = glue("Increated IIT in {metadata$curr_pd} across USAID/Tanzania") %>% toupper,
          subtitle = "Each point represents a council's IIT",
-         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%
+         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
                         {metadata$caption}")) +
     si_style() +
     theme(plot.subtitle = element_markdown())
@@ -1090,7 +1082,7 @@
                                   "Male" = genoa)) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL,
-         title = "Significant gaps between Males and Females on TX_CURR achievement between 15-39" %>% toupper,
+         title = "Significant gaps between Males and Females on TX_CURR achievement between 15-34" %>% toupper,
          subtitle = glue("Each smaller point represents regions achievement <span style='color:{genoa}'>Male</span> or <span style='color:{moody_blue}'>Female</span> | Larger + labeled points are USAID's achievement in that age band"),
          caption = glue("Note: Achievement capped at 110% \n{metadata$caption}")) +
     si_style() +
@@ -1146,7 +1138,7 @@
                                   "Male" = genoa)) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL,
-         title = "Major short falls in TX_NEW achievement for Males under 30" %>% toupper,
+         title = "Across the board under achievement in TX_NEW achievement for Males 1-49" %>% toupper,
          subtitle = glue("Each smaller point represents regions achievement <span style='color:{genoa}'>Male</span> or <span style='color:{moody_blue}'>Female</span> | Larger + labeled points are USAID's achievement in that age band"),
          caption = glue("Note: Achievement capped at 110% \n{metadata$caption}")) +
     si_style() +
@@ -1251,13 +1243,15 @@
   v_p_linked <- df_pmtct_linked %>% 
     ggplot(aes(linked, fct_reorder(snu1, pmtct_art_d, sum))) +
     geom_jitter(aes(size = pmtct_art_d),
-                color = moody_blue,
+                color = scooter,
                 position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
                 alpha = .4) +
-    geom_text_repel(data = df_pmtct_linked %>% filter(linked <.9 | linked > 1.1),
-                    aes(label = cop22_psnu),
-                    family = "Source San Pro", color = matterhorn) +
-    scale_x_continuous(label = percent_format(), position = "top") +
+    # geom_text_repel(data = df_pmtct_linked %>% filter(linked <.9 | linked > 1.1),
+    #                 aes(label = cop22_psnu),
+    #                 family = "Source San Pro", color = matterhorn) +
+    scale_x_continuous(label = percent_format(), position = "top",
+                       limits = c(.25,1.25),
+                       oob = oob_squish) +
     scale_size(guide = "none") +
     labs(x = NULL, y = NULL,
          # title = "PMTCT ART Linkage hovers around 100% with a few outliers" %>% toupper,
@@ -1271,7 +1265,7 @@
   v_p_artd <- df_pmtct_linked %>% 
     count(snu1, wt = pmtct_art_d, name = "pmtct_art_d") %>% 
     ggplot(aes(pmtct_art_d, fct_reorder(snu1, pmtct_art_d, sum))) +
-    geom_col(fill = moody_blue) +
+    geom_col(fill = scooter) +
     scale_x_continuous(label = comma_format(),
                        position = "top") +
     labs(x = NULL, y = NULL,
@@ -1281,7 +1275,7 @@
   
   
   v_p_artd + v_p_linked +
-    plot_annotation(title = "PMTCT ART Linkage hovers around 100% with a few outliers" %>% toupper,
+    plot_annotation(title = "Many Councils' PMTCT ART Linkage dipped below 100%" %>% toupper,
                     caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{metadata$caption}"),
                     theme = si_style())
   
@@ -1311,7 +1305,7 @@
   v_p_new <- df_pmct_new %>% 
     ggplot(aes(share_new, fct_reorder(snu1, total, sum))) +
     geom_jitter(aes(size = total),
-                color = moody_blue,
+                color = scooter,
                 position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
                 alpha = .4) +
     scale_x_continuous(label = percent_format(), position = "top") +
@@ -1327,7 +1321,7 @@
   v_p_new_bar <- df_pmct_new %>% 
     count(snu1, wt = total, name = "total") %>% 
     ggplot(aes(total, fct_reorder(snu1, total, sum))) +
-    geom_col(fill = moody_blue) +
+    geom_col(fill = scooter) +
     scale_x_continuous(label = comma_format(),
                        position = "top") +
     labs(x = NULL, y = NULL,
