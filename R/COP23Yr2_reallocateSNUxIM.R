@@ -17,6 +17,7 @@
   library(openxlsx)
   library(waldo)
   library(readxl)
+  library(googledrive)
   #install tidylog as well, but don't load it (called explicity to check join)
 
 
@@ -30,7 +31,9 @@
   
   #name of the new file created replacing the default allocation
   path_out <- str_replace(path_new, ".xlsx", "_alloc-applied.xlsx")
-    
+  
+  #google drive folder path
+  path_gdrive <- as_id("17p4j0qBi6ke__xutYGb9Sulp4xm4nsYN")
   
 # IMPORT ------------------------------------------------------------------
   
@@ -93,9 +96,12 @@
             startRow = 15,
             colNames = FALSE)
   
-  #test
-  # openXL(wb)
-  
+  #save
   saveWorkbook(wb, path_out, overwrite = TRUE)
+
+# UPLOAD TO GDRIVE --------------------------------------------------------
+
+  #push to drive
+  drive_upload(path_out, path = path_gdrive, type = "xlsx")
  
   
