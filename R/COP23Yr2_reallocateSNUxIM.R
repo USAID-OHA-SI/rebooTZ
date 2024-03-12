@@ -4,7 +4,7 @@
 # REF ID:   1b4e7256 
 # LICENSE:  MIT
 # DATE:     2024-03-06
-# UPDATED: 
+# UPDATED:  2024-03-12
 
 
 # INSTALL PACKAGES --------------------------------------------------------
@@ -24,10 +24,10 @@
 # GLOBAL VARIABLES --------------------------------------------------------
 
   #PSNUxIM file with desired IM allocation
-  path_allocation <- "Data/PSNUxIM_Tanzania_20240306 335PM_ORIGINAL.xlsx"
+  path_allocation <- "Data/PSNUxIM_Tanzania_20240308_081512_alloc-applied March_11_NM_344pm.xlsx"
   
   #new/regenerated PSNUxIM file with correct values but default allocation
-  path_new <- "Data/PSNUxIM_Tanzania_030624 to be updated_new DP version.xlsx"
+  path_new <- "Data/PSNUxIM_Tanzania031224_to be updated.xlsx"
   
   #name of the new file created replacing the default allocation
   path_out <- str_replace(path_new, ".xlsx", "_alloc-applied.xlsx")
@@ -44,7 +44,7 @@
                          col_types = "text")
   
   #new/regenerated PSNUxIM file with correct values but default allocation
-  df_new <- read_excel(path_allocation,
+  df_new <- read_excel(path_new,
                        sheet = "PSNUxIM",
                        skip =  13,
                        col_types = "text")
@@ -54,14 +54,14 @@
   #keep only IM allocation columns (desired allocation file)
   df_alloc_lim <- df_alloc %>% 
     select(ID, indicator_code,
-           matches("(Not PEPFAR\\.{3}\\d{1,2}|.*DSD.*\\.{3}\\d{1,2})$")) %>%
+           matches("(Not PEPFAR\\.{3}\\d{1,2}|.*_DSD.*\\.{3}\\d{1,2}|.*_DSD)$")) %>%
     rename_all(~str_remove(., "...[:digit:]+$")) 
   
   #keep only IM allocation columns (new file)
   df_new_lim <- df_new %>% 
     select(ID, indicator_code,
-           matches("(Not PEPFAR\\.{3}\\d{1,2}|.*DSD.*\\.{3}\\d{1,2})$")) %>% 
-    rename_all(~str_remove(., "...[:digit:]+$")) 
+           matches("(Not PEPFAR\\.{3}\\d{1,2}|.*_DSD.*\\.{3}\\d{1,2}|.*_DSD)$")) %>% 
+    rename_all(~str_remove(., "...[:digit:]+$"), row) 
   
   #ensure no differences in the ordering of the IM columns
   compare(names(df_alloc_lim), names(df_new_lim))
@@ -90,7 +90,7 @@
     match(names(df_new))
   
   #overwrite the PSNUxIM tab with the new allocations
-  writeData(wb, "PSNUxIM", 
+  writeData(wb, "PSNUxIM",
             df_out,
             startCol = col_start,
             startRow = 15,
@@ -102,6 +102,6 @@
 # UPLOAD TO GDRIVE --------------------------------------------------------
 
   #push to drive
-  drive_upload(path_out, path = path_gdrive, type = "xlsx")
+  drive_upload(path_out, path = path_gdrive, type = "xlsx", overwrite = TRUE)
  
   
