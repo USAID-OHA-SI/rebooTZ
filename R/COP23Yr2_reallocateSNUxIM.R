@@ -4,7 +4,7 @@
 # REF ID:   1b4e7256 
 # LICENSE:  MIT
 # DATE:     2024-03-06
-# UPDATED:  2024-03-12
+# UPDATED:  2024-03-13
 
 
 # INSTALL PACKAGES --------------------------------------------------------
@@ -24,10 +24,10 @@
 # GLOBAL VARIABLES --------------------------------------------------------
 
   #PSNUxIM file with desired IM allocation
-  path_allocation <- "Data/PSNUxIM_Tanzania_20240308_081512_alloc-applied March_11_NM_344pm.xlsx"
+  path_allocation <- "Data/PSNUxIM_Tanzania031324_1217pm_for testing.xlsx"
   
   #new/regenerated PSNUxIM file with correct values but default allocation
-  path_new <- "Data/PSNUxIM_Tanzania031224_to be updated.xlsx"
+  path_new <- "Data/PSNUxIM_Tanzania_031324_tobeupdated.xlsx"
   
   #name of the new file created replacing the default allocation
   path_out <- str_replace(path_new, ".xlsx", "_alloc-applied.xlsx")
@@ -53,15 +53,17 @@
   
   #keep only IM allocation columns (desired allocation file)
   df_alloc_lim <- df_alloc %>% 
-    select(ID, indicator_code,
+    select(PSNU:KeyPop,
            matches("(Not PEPFAR\\.{3}\\d{1,2}|.*_DSD.*\\.{3}\\d{1,2}|.*_DSD)$")) %>%
-    rename_all(~str_remove(., "...[:digit:]+$")) 
+    rename_all(~str_remove(., "...[:digit:]+$")) %>% 
+    mutate(across(c(PSNU:KeyPop), ~ ifelse(is.na(.), "[Blank]", .)))
   
   #keep only IM allocation columns (new file)
   df_new_lim <- df_new %>% 
-    select(ID, indicator_code,
+    select(PSNU:KeyPop,
            matches("(Not PEPFAR\\.{3}\\d{1,2}|.*_DSD.*\\.{3}\\d{1,2}|.*_DSD)$")) %>% 
-    rename_all(~str_remove(., "...[:digit:]+$"), row) 
+    rename_all(~str_remove(., "...[:digit:]+$"), row) %>% 
+    mutate(across(c(PSNU:KeyPop), ~ ifelse(is.na(.), "[Blank]", .)))
   
   #ensure no differences in the ordering of the IM columns
   compare(names(df_alloc_lim), names(df_new_lim))
@@ -70,13 +72,14 @@
 
   #limit new data frame to just the join key (for row ordering) and then join on desired allocation
   df_replace <- df_new_lim %>% 
-    select(ID, indicator_code) %>% 
-    tidylog::left_join(df_alloc_lim, by = c("ID", "indicator_code")) %>% 
-    mutate(across(-c(ID, indicator_code), as.numeric))
+    select(PSNU:KeyPop) %>% 
+    tidylog::left_join(df_alloc_lim, by = c("PSNU", "indicator_code", "Age", "Sex", "KeyPop")) %>% 
+    mutate(across(-c(PSNU:KeyPop), as.numeric),
+           across(c(PSNU:KeyPop), ~ ifelse(. == "[Blank]",NA_character_, .)))
   
   #output dataset (removed binding keys)
   df_out <- df_replace %>% 
-    select(-c(ID, indicator_code))
+    select(-c(PSNU:KeyPop))
   
 # REPLACE DATA IN EXCEL ---------------------------------------------------
 
