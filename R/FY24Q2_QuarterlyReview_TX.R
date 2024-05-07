@@ -4,7 +4,7 @@
 # REF ID:   c9751ba1 
 # LICENSE:  MIT
 # DATE:     2024-05-06
-# UPDATED:  
+# UPDATED:  2024-05-07
 # NOTE:     Adapted from FY24Q1_QuarterlyReview_TX.R
 
 
@@ -1245,117 +1245,116 @@
 # PMTCT -------------------------------------------------------------------
 
     
-  # df_pmtct_linked <- df %>% 
-  #   filter(indicator %in% c("PMTCT_ART", "PMTCT_STAT_POS"),
-  #          fiscal_year == meta$curr_fy) %>% 
-  #   pluck_totals() %>% 
-  #   clean_indicator() %>% 
-  #   group_by(fiscal_year, snu1, cop22_psnu, indicator) %>% 
-  #   summarise(value = sum(cumulative, na.rm = TRUE), 
-  #             .groups = "drop") %>% 
-  #   pivot_wider(names_from = indicator,
-  #               names_glue = "{tolower(indicator)}") %>% 
-  #   filter(pmtct_art_d > 0) %>% 
-  #   mutate(linked = pmtct_art / pmtct_stat_pos)
-  # 
-  # 
-  # 
-  # v_p_linked <- df_pmtct_linked %>% 
-  #   ggplot(aes(linked, fct_reorder(snu1, pmtct_art_d, sum))) +
-  #   geom_jitter(aes(size = pmtct_art_d),
-  #               color = scooter,
-  #               position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
-  #               alpha = .4) +
-  #   # geom_text_repel(data = df_pmtct_linked %>% filter(linked <.9 | linked > 1.1),
-  #   #                 aes(label = cop22_psnu),
-  #   #                 family = "Source San Pro", color = matterhorn) +
-  #   scale_x_continuous(label = percent_format(), position = "top",
-  #                      limits = c(.25,1.25),
-  #                      oob = oob_squish) +
-  #   scale_size(guide = "none") +
-  #   labs(x = NULL, y = NULL,
-  #        # title = "PMTCT ART Linkage hovers around 100% with a few outliers" %>% toupper,
-  #        subtitle = glue("Each point represents council's Proxy PMTCT Linked to ART"),
-  #        # caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{meta$caption}")
-  #        ) +
-  #   theme(legend.position = "none") +
-  #   si_style()
-  # 
-  # 
-  # v_p_artd <- df_pmtct_linked %>% 
-  #   count(snu1, wt = pmtct_art_d, name = "pmtct_art_d") %>% 
-  #   ggplot(aes(pmtct_art_d, fct_reorder(snu1, pmtct_art_d, sum))) +
-  #   geom_col(fill = scooter) +
-  #   scale_x_continuous(label = comma_format(),
-  #                      position = "top") +
-  #   labs(x = NULL, y = NULL,
-  #        subtitle = "PMTCT_ART_D") +
-  #   theme(legend.position = "none") +
-  #   si_style()
-  # 
-  # 
-  # v_p_artd + v_p_linked +
-  #   plot_annotation(title = "Many Councils' PMTCT ART Linkage dipped below 100%" %>% toupper,
-  #                   caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{meta$caption}"),
-  #                   theme = si_style())
-  # 
-  # 
-  # 
-  # si_save(glue("{meta$curr_pd}_TZA-usaid_pmtct_linked_.png"),
-  #         path = "Images",
-  #         scale = 1.1) 
-  # 
-  # df_pmct_new <- df %>% 
-  #   filter(indicator == "PMTCT_ART",
-  #          standardizeddisaggregate == "Age/Sex/NewExistingArt/HIVStatus",
-  #          fiscal_year == meta$curr_fy) %>% 
-  #   mutate(otherdisaggregate = str_remove(otherdisaggregate, "Life-long ART, ")) %>% 
-  #   group_by(fiscal_year, snu1, cop22_psnu, indicator,otherdisaggregate) %>% 
-  #   summarise(value = sum(cumulative, na.rm = TRUE), 
-  #             .groups = "drop") %>% 
-  #   pivot_wider(names_from = otherdisaggregate,
-  #               names_glue = "{tolower(otherdisaggregate)}",
-  #               values_fill = 0) %>% 
-  #   mutate(total = new + already,
-  #          share_new = new / total)
-  # 
-  # 
-  # 
-  # 
-  # v_p_new <- df_pmct_new %>% 
-  #   ggplot(aes(share_new, fct_reorder(snu1, total, sum))) +
-  #   geom_jitter(aes(size = total),
-  #               color = scooter,
-  #               position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
-  #               alpha = .4) +
-  #   scale_x_continuous(label = percent_format(), position = "top") +
-  #   scale_size(guide = "none") +
-  #   coord_cartesian(clip = "off")+
-  #   labs(x = NULL, y = NULL,
-  #        subtitle = glue("Each point represents council's PMTCT newly initiated"),
-  #   ) +
-  #   theme(legend.position = "none") +
-  #   si_style()
-  # 
-  # 
-  # v_p_new_bar <- df_pmct_new %>% 
-  #   count(snu1, wt = total, name = "total") %>% 
-  #   ggplot(aes(total, fct_reorder(snu1, total, sum))) +
-  #   geom_col(fill = scooter) +
-  #   scale_x_continuous(label = comma_format(),
-  #                      position = "top") +
-  #   labs(x = NULL, y = NULL,
-  #        subtitle = "PMTCT_ART (New + Already)") +
-  #   theme(legend.position = "none") +
-  #   si_style()
-  # 
-  # 
-  # v_p_new_bar + v_p_new +
-  #   plot_annotation(title = "What share of HIV+ clinets in ANC1 are new to Tx?" %>% toupper,
-  #                   caption = meta$caption,
-  #                   theme = si_style())
-  # 
-  # si_save(glue("{meta$curr_pd}_TZA-usaid_pmtct_new.png"),
-  #         path = "Images",
-  #         scale = 1.1) 
-  
+  df_pmtct_linked <- df %>%
+    filter(indicator %in% c("PMTCT_ART", "PMTCT_STAT_POS"),
+           fiscal_year == meta$curr_fy) %>%
+    pluck_totals() %>%
+    clean_indicator() %>%
+    group_by(fiscal_year, snu1, cop22_psnu, indicator) %>%
+    summarise(value = sum(cumulative, na.rm = TRUE),
+              .groups = "drop") %>%
+    pivot_wider(names_from = indicator,
+                names_glue = "{tolower(indicator)}") %>%
+    filter(pmtct_art_d > 0) %>%
+    mutate(linked = pmtct_art / pmtct_stat_pos)
+
+
+
+  v_p_linked <- df_pmtct_linked %>%
+    ggplot(aes(linked, fct_reorder(snu1, pmtct_art_d, sum))) +
+    geom_jitter(aes(size = pmtct_art_d),
+                color = scooter,
+                position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+                alpha = .4) +
+    # geom_text_repel(data = df_pmtct_linked %>% filter(linked <.9 | linked > 1.1),
+    #                 aes(label = cop22_psnu),
+    #                 family = "Source San Pro", color = matterhorn) +
+    scale_x_continuous(label = percent_format(), position = "top",
+                       limits = c(.25,1.25),
+                       oob = oob_squish) +
+    scale_size(guide = "none") +
+    labs(x = NULL, y = NULL,
+         # title = "PMTCT ART Linkage hovers around 100% with a few outliers" %>% toupper,
+         subtitle = glue("Each point represents council's Proxy PMTCT Linked to ART"),
+         # caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{meta$caption}")
+         ) +
+    theme(legend.position = "none") +
+    si_style()
+
+
+  v_p_artd <- df_pmtct_linked %>%
+    count(snu1, wt = pmtct_art_d, name = "pmtct_art_d") %>%
+    ggplot(aes(pmtct_art_d, fct_reorder(snu1, pmtct_art_d, sum))) +
+    geom_col(fill = scooter) +
+    scale_x_continuous(label = comma_format(),
+                       position = "top") +
+    labs(x = NULL, y = NULL,
+         subtitle = "PMTCT_ART_D") +
+    theme(legend.position = "none") +
+    si_style()
+
+
+  v_p_artd + v_p_linked +
+    plot_annotation(title = "Many Councils' PMTCT ART Linkage dipped below 100%" %>% toupper,
+                    caption = glue("Note: Proxy Linked = PMTCT_ART / PMTCT_STAT_POS \n{meta$caption}"),
+                    theme = si_style())
+
+
+
+  si_save(glue("{meta$curr_pd}_TZA-usaid_pmtct_linked_.png"),
+          path = "Images",
+          scale = 1.1)
+
+  df_pmct_new <- df %>%
+    filter(indicator == "PMTCT_ART",
+           standardizeddisaggregate == "Age/Sex/NewExistingArt/HIVStatus",
+           fiscal_year == meta$curr_fy) %>%
+    mutate(otherdisaggregate = str_remove(otherdisaggregate, "Life-long ART, ")) %>%
+    group_by(fiscal_year, snu1, cop22_psnu, indicator,otherdisaggregate) %>%
+    summarise(value = sum(cumulative, na.rm = TRUE),
+              .groups = "drop") %>%
+    pivot_wider(names_from = otherdisaggregate,
+                names_glue = "{tolower(otherdisaggregate)}",
+                values_fill = 0) %>%
+    mutate(total = new + already,
+           share_new = new / total)
+
+
+
+
+  v_p_new <- df_pmct_new %>%
+    ggplot(aes(share_new, fct_reorder(snu1, total, sum))) +
+    geom_jitter(aes(size = total),
+                color = scooter,
+                position = position_jitter(width = 0, height = 0.1), na.rm = TRUE,
+                alpha = .4) +
+    scale_x_continuous(label = percent_format(), position = "top") +
+    scale_size(guide = "none") +
+    coord_cartesian(clip = "off")+
+    labs(x = NULL, y = NULL,
+         subtitle = glue("Each point represents council's PMTCT newly initiated"),
+    ) +
+    theme(legend.position = "none") +
+    si_style()
+
+
+  v_p_new_bar <- df_pmct_new %>%
+    count(snu1, wt = total, name = "total") %>%
+    ggplot(aes(total, fct_reorder(snu1, total, sum))) +
+    geom_col(fill = scooter) +
+    scale_x_continuous(label = comma_format(),
+                       position = "top") +
+    labs(x = NULL, y = NULL,
+         subtitle = "PMTCT_ART (New + Already)") +
+    theme(legend.position = "none") +
+    si_style()
+
+
+  v_p_new_bar + v_p_new +
+    plot_annotation(title = "What share of HIV+ clients in ANC1 are new to Tx?" %>% toupper,
+                    caption = meta$caption,
+                    theme = si_style())
+
+  si_save(glue("{meta$curr_pd}_TZA-usaid_pmtct_new.png"),
+          path = "Images",
+          scale = 1.1)
