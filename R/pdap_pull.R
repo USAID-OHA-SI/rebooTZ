@@ -2,6 +2,8 @@
 #'
 #' @param post_body elements to pass into the PDAP Wave POST API
 #' @param folderpath_dwnld where to download, default = "Data"
+#' @param psd_type Type of PEPFAR Structured dataset: "psnu_im" (default), 
+#'   "ou_im", or "site_im"
 #' @param username DATIM username, if blank looks for stored credentials 
 #'   (glamr::set_datim) and then prompts for credentials if not found 
 #' @param password DATIM password, if blank looks for stored credentials 
@@ -27,7 +29,7 @@
 #'    funding_agency = list("USAID"),
 #'    indicator=list("TX_CURR","TX_ML","TX_CURR_LAG2", "TX_NET_NEW","TX_NEW",
 #'                   "TX_RTT","PMTCT_STAT", "PMTCT_STAT_POS", "PMTCT_ART"),
-#'    uid_hierarchy_list=list(stringr::str_glue('-|-|{cntry_uid}')))
+#'    uid_hierarchy_list=list(str_glue('-|-|{cntry_uid}')))
 #'    
 #'  #run API
 #'  pdap_pull(cntry_uid, post_body)
@@ -39,6 +41,7 @@
   
 pdap_pull <- function(post_body,
                       folderpath_dwnld = "Data",
+                      psd_type = c("psnu_im", "ou_im", "site_im"),
                       username,
                       password){
   
@@ -71,13 +74,21 @@ pdap_pull <- function(post_body,
     dplyr::pull(country) %>% 
     stringr::str_remove_all("( |')")
   
+  #ensure only one psd_type
+  psd_type <- psd_type[1]
+  
+  #string type
+  psd_type_string <- psd_type %>% 
+    stringr::str_extract("^.*(?=_)") %>% 
+    toupper()
+  
   #output path 
   zip_path <- file.path(folderpath_dwnld, 
-                        stringr::str_glue('Genie-PSNUByIMs-{cntry}-Daily-{Sys.Date()}.zip'))
+                        stringr::str_glue('Genie-{psd_type_string}ByIMs-{cntry}-Daily-{Sys.Date()}.zip'))
   
   #DATIM POST request
   httr::POST(
-    stringr::str_glue('https://{api_host}/api/data/psnu_im'),
+    stringr::str_glue('https://{api_host}/api/data/{psd_type}'),
     httr::set_cookies(wave_session = api_login_result$cookies$value),
     encode='json',
     body={post_body},

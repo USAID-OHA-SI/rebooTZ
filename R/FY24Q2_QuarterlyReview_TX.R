@@ -4,7 +4,7 @@
 # REF ID:   c9751ba1 
 # LICENSE:  MIT
 # DATE:     2024-05-06
-# UPDATED:  2024-05-07
+# UPDATED:  2024-05-08
 # NOTE:     Adapted from FY24Q1_QuarterlyReview_TX.R
 
 
@@ -30,16 +30,16 @@
   
   ref_id <- "c9751ba1"
   
-  # genie_path <- return_latest("Data", "Genie-PSNUByIMs-Tanzania-Daily")
-  
   peds <- c("<01", "01-04", "01-09", "05-09", "10-14", "<15")
   
   over50 <- c("50-54","55-59", "60-64", "65+")
   
   curr_limiter <- 75
   
-  # get_meta(genie_path, caption_note = "USAID")
-  
+  #focal regions
+  snu_sel <- c("Arusha","Dodoma", "Kilimanjaro", "Singida","Manyara", "Iringa",
+               "Njombe", "Mtwara", "Lindi", "Ruvuma", "Morogoro")
+
   load_secrets()
   
 
@@ -105,7 +105,8 @@
 
   df_gr <- df %>% 
     filter(indicator == "TX_CURR",
-           standardizeddisaggregate == "Total Numerator") %>% 
+           standardizeddisaggregate == "Total Numerator",
+           snu1 %in% snu_sel) %>% 
     group_by(fiscal_year, snu1, indicator) %>% 
     summarise(across(c(targets, starts_with("qtr")), \(x) sum(x, na.rm = TRUE)), 
               .groups = "drop") %>%
@@ -168,6 +169,7 @@
   df_gr_peds <- df %>% 
     filter(indicator == "TX_CURR",
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
+           snu1 %in% snu_sel,
            trendscoarse %in% "<15") %>%
     group_by(fiscal_year, snu1, indicator) %>% 
     summarise(across(c(targets, starts_with("qtr")), \(x) sum(x, na.rm = TRUE)), 
@@ -294,7 +296,8 @@
   #aggregate to regional level
   df_achv <- df %>%
     filter(indicator %in% c("TX_CURR", "TX_NEW"),
-           fiscal_year == meta$curr_fy) %>% 
+           fiscal_year == meta$curr_fy,
+           snu1 %in% snu_sel) %>% 
     pluck_totals() %>% 
     group_by(fiscal_year, snu1, indicator) %>% 
     summarize(across(c(targets, cumulative),\(x) sum(x, na.rm = TRUE)), 
@@ -365,6 +368,7 @@
   df_achv_peds <- df %>%
     filter(indicator %in% c("TX_CURR", "TX_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
+           snu1 %in% snu_sel,
            trendscoarse %in% "<15",
            fiscal_year == meta$curr_fy) %>% 
     group_by(fiscal_year, snu1, psnu, indicator) %>% 
@@ -432,7 +436,8 @@
 # NEW V NET_NEW -----------------------------------------------------------
 
   df_nn <- df %>% 
-    filter(indicator %in% c("TX_CURR", "TX_NEW", "TX_NET_NEW")) %>%
+    filter(indicator %in% c("TX_CURR", "TX_NEW", "TX_NET_NEW"),
+           snu1 %in% snu_sel) %>%
     pluck_totals() %>% 
     group_by(snu1, indicator, fiscal_year) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
@@ -477,6 +482,7 @@
   df_nn_peds <- df %>% 
     filter(indicator %in% c("TX_CURR", "TX_NEW", "TX_NET_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
+           snu1 %in% snu_sel,
            trendscoarse %in% "<15") %>%
     group_by(snu1, indicator, fiscal_year) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
@@ -569,7 +575,8 @@
 
   df_mmd <- df %>% 
     filter(indicator == "TX_CURR",
-           standardizeddisaggregate %in% c("Total Numerator", "Age/Sex/ARVDispense/HIVStatus")) %>% 
+           standardizeddisaggregate %in% c("Total Numerator", "Age/Sex/ARVDispense/HIVStatus"),
+           snu1 %in% snu_sel) %>% 
     mutate(otherdisaggregate = case_when(is.na(otherdisaggregate) ~ "total",
                                          TRUE ~ str_remove(otherdisaggregate, "ARV Dispensing Quantity - ")
     ))   
@@ -660,6 +667,7 @@
   df_mmd_peds <- df %>% 
     filter(indicator == "TX_CURR",
            standardizeddisaggregate == "Age/Sex/ARVDispense/HIVStatus",
+           snu1 %in% snu_sel,
            trendscoarse %in% "<15")
   
   df_mmd_peds <- df_mmd_peds %>% 
@@ -840,7 +848,8 @@
 # IIT ---------------------------------------------------------------------
 
   df_iit <- df %>% 
-    filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW")) %>%
+    filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW"),
+           snu1 %in% snu_sel) %>%
     pluck_totals() %>%
     group_by(fiscal_year, snu1, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
@@ -913,6 +922,7 @@
   df_iit_peds <- df %>% 
     filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARTNoContactReason/HIVStatus"),
+           snu1 %in% snu_sel,
            trendscoarse == "<15") %>%
     group_by(fiscal_year, snu1, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
@@ -1039,6 +1049,7 @@
   df_achv_age <- df %>%
     filter(indicator %in% c("TX_CURR", "TX_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
+           snu1 %in% snu_sel,
            # ageasentered != "50+",
            fiscal_year == meta$curr_fy) 
   
@@ -1158,7 +1169,7 @@
                                   "Male" = genoa)) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL,
-         title = "Across the board under achievement in TX_NEW achievement for Males 1-49" %>% toupper,
+         title = "Across the board under achievement in TX_NEW achievement for Males 15-49" %>% toupper,
          subtitle = glue("Each smaller point represents regions achievement <span style='color:{genoa}'>Male</span> or <span style='color:{moody_blue}'>Female</span> | Larger + labeled points are USAID's achievement in that age band"),
          caption = glue("Note: Achievement capped at 110% \n{meta$caption}")) +
     si_style() +
@@ -1178,7 +1189,8 @@
     
   df_mmd_age <- df %>% 
     filter(indicator == "TX_CURR",
-           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARVDispense/HIVStatus")) %>% 
+           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARVDispense/HIVStatus"),
+           snu1 %in% snu_sel) %>% 
     mutate(otherdisaggregate = case_when(is.na(otherdisaggregate) ~ "total",
                                          TRUE ~ str_remove(otherdisaggregate, "ARV Dispensing Quantity - ")
     ))   
@@ -1216,6 +1228,7 @@
     
   df_mmd_age %>% 
     ggplot(aes(share, fct_reorder(snu1, tx_curr, sum), color = sex, group = snu1)) +
+    geom_vline(xintercept = 0, color = "#505050") +
     geom_line(color = "#D3D3D3") +
     geom_point(aes(size = tx_curr), color = "white") +
     geom_point(aes(size = tx_curr), alpha = .5) +
@@ -1247,6 +1260,7 @@
     
   df_pmtct_linked <- df %>%
     filter(indicator %in% c("PMTCT_ART", "PMTCT_STAT_POS"),
+           snu1 %in% snu_sel,
            fiscal_year == meta$curr_fy) %>%
     pluck_totals() %>%
     clean_indicator() %>%
@@ -1308,6 +1322,7 @@
   df_pmct_new <- df %>%
     filter(indicator == "PMTCT_ART",
            standardizeddisaggregate == "Age/Sex/NewExistingArt/HIVStatus",
+           snu1 %in% snu_sel,
            fiscal_year == meta$curr_fy) %>%
     mutate(otherdisaggregate = str_remove(otherdisaggregate, "Life-long ART, ")) %>%
     group_by(fiscal_year, snu1, cop22_psnu, indicator,otherdisaggregate) %>%
