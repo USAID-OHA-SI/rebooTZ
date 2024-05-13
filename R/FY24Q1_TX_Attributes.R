@@ -30,6 +30,72 @@
   
   cntry <- "Tanzania"
   
+  # DATIM API ---------------------------------------------------------------
+  
+  info <- get_outable() %>% 
+    filter(country == cntry) %>% 
+    select(country, country_uid, facility_lvl) %>% 
+    as.list()
+  
+  
+  url <- paste0("https://final.datim.org/api/analytics.json?",
+                "dimension=ou:", info$country_uid, ";LEVEL-", info$facility_lvl, "&", #hierarchy
+                "filter=RUkVjD3BsS1&", #top level
+                "dimension=bw8KHXzxd9i&", #Funding Agency
+                "dimension=CH5v24DUJO0&", #Site Attribute: Ownership Type
+                "dimension=SbeNLojYo3t&", #Site Attribute: Facility Type
+                "dimension=LxhLO68FcXm:MvszPTQrUhy&", #indicator: TX_CURR
+                "dimension=pe:2021Oct;2022Oct;2023Oct&", #periods
+                "displayProperty=SHORTNAME&skipMeta=false&hierarchyMeta=false")
+  
+  df_datim <- datim_process_query(url)
+  
+  df_datim_clean <- df_datim %>% 
+    rename(orgunit = `Organisation unit`,
+           funding_agency = `Funding Agency`,
+           ownership_type = `SA Own Type`,
+           facility_type = `SA Facility Type`,
+           indicator = `Technical Area`) %>% 
+    rename_with(tolower) %>% 
+    clean_agency() %>% 
+    mutate(ownership_type = str_remove(ownership_type, "^OWN "),
+           facility_type = str_remove(facility_type, "^FT ")
+    ) %>% 
+    mutate(fiscal_year = period %>% str_sub(-4) %>% as.numeric(), .before = value) %>% 
+    arrange(fiscal_year) %>% 
+    select(-period) %>% 
+    pivot_wider(names_from = c(indicator, fiscal_year),
+                names_glue = "{tolower(indicator)}_fy{str_sub(fiscal_year, -2)}")
+  
+  df_orgs <- datim_orgunits(info$country, reshape = TRUE) %>% 
+    select(orgunituid, country, snu1)
+  
+  df_datim_clean <- df_datim_clean %>% 
+    right_join(df_orgs, .) %>% 
+    relocate(orgunit, 1)
+  
+  write_csv(df_datim_clean, "Dataout/TZA_TX_SA.csv", na  = "")
+  
+
+# REVIEW ------------------------------------------------------------------
+
+  df_datim_clean %>% 
+    count(funding_agency, ownership_type) %>% 
+    mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
+    arrange(desc(ownership_type)) %>% 
+    pivot_wider(names_from = funding_agency, values_from = n)
+  
+  df_datim_clean %>% 
+    count(funding_agency, ownership_type, wt = tx_curr_fy24) %>% 
+    mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
+    arrange(desc(ownership_type)) %>%
+    pivot_wider(names_from = funding_agency, values_from = n)
+  
+  
+  df_datim_clean %>% 
+    count(funding_agency, wt = tx_curr_fy24) 
+  
+  
 # PDAP WAVE API -----------------------------------------------------------
 
   # #get TZA UID
@@ -75,53 +141,6 @@
   # df_genie <- read_psd(genie_path) 
   
 
-# DATIM API ---------------------------------------------------------------
-
-  info <- get_outable() %>% 
-    filter(country == cntry) %>% 
-    select(country, country_uid, facility_lvl) %>% 
-    as.list()
-  
-  
-  url <- paste0("https://final.datim.org/api/analytics.json?",
-                "dimension=ou:", info$country_uid, ";LEVEL-", info$facility_lvl, "&", #hierarchy
-                "filter=RUkVjD3BsS1&", #top level
-                "dimension=bw8KHXzxd9i&", #Funding Agency
-                "dimension=CH5v24DUJO0&", #Site Attribute: Ownership Type
-                "dimension=SbeNLojYo3t&", #Site Attribute: Facility Type
-                "dimension=LxhLO68FcXm:MvszPTQrUhy&", #indicator: TX_CURR
-                "dimension=pe:2021Oct;2022Oct;2023Oct&", #periods
-                "displayProperty=SHORTNAME&skipMeta=false&hierarchyMeta=false")
-  
-  df_datim <- datim_process_query(url)
-  
-  df_datim_clean <- df_datim %>% 
-    rename(orgunit = `Organisation unit`,
-           funding_agency = `Funding Agency`,
-           ownership_type = `SA Own Type`,
-           facility_type = `SA Facility Type`,
-           indicator = `Technical Area`) %>% 
-    rename_with(tolower) %>% 
-    clean_agency() %>% 
-    mutate(ownership_type = str_remove(ownership_type, "^OWN "),
-           facility_type = str_remove(facility_type, "^FT ")
-           ) %>% 
-    mutate(fiscal_year = period %>% str_sub(-4) %>% as.numeric(), .before = value) %>% 
-    arrange(fiscal_year) %>% 
-    select(-period) %>% 
-    pivot_wider(names_from = c(indicator, fiscal_year),
-                names_glue = "{tolower(indicator)}_fy{str_sub(fiscal_year, -2)}")
-  
-  df_orgs <- datim_orgunits(info$country, reshape = TRUE) %>% 
-    select(orgunituid, country, snu1)
-  
-  df_datim_clean <- df_datim_clean %>% 
-    right_join(df_orgs, .) %>% 
-    relocate(orgunit, 1)
-  
-  write_csv(df_datim_clean, "Dataout/TZA_TX_SA.csv", na  = "")
-      
-
 # MUNGE -------------------------------------------------------------------
 
   #aggregate to one observation by site
@@ -143,18 +162,4 @@
 
 # VIZ ---------------------------------------------------------------------
   
-  df_datim_clean %>% 
-    count(funding_agency, ownership_type) %>% 
-    mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
-    arrange(desc(ownership_type)) %>% 
-    pivot_wider(names_from = funding_agency, values_from = n)
   
-  df_datim_clean %>% 
-    count(funding_agency, ownership_type, wt = tx_curr_fy24) %>% 
-    mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
-    arrange(desc(ownership_type)) %>%
-    pivot_wider(names_from = funding_agency, values_from = n)
-  
-  
-  df_datim_clean %>% 
-    count(funding_agency, wt = tx_curr_fy24) 
