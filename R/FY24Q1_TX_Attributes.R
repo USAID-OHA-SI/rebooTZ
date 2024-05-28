@@ -4,7 +4,7 @@
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
-# UPDATED:  2024-05-15
+# UPDATED:  2024-05-28
 
 
 
@@ -28,6 +28,7 @@
   library(tidyverse)
   library(glue)
   library(janitor, warn.conflicts = FALSE)
+  library(googledrive)
   #oha
   library(gagglr) ##install.packages('gagglr', repos = c('https://usaid-oha-si.r-universe.dev', 'https://cloud.r-project.org'))
   library(grabr)  
@@ -40,7 +41,7 @@
 
 # GLOBAL VARIABLES --------------------------------------------------------
   
-  load_secrets("datim")
+  load_secrets()
 
   ref_id <- "a487bcd2"  #a reference to be places in viz captions 
   
@@ -320,5 +321,14 @@
     pivot_wider(names_from = facility_type, values_from = n)
   
   
+  output_path <- "Dataout/TZA_TX_SA_20240515.csv"
+  
   df_full %>% 
-    write_csv("Dataout/TZA_TX_SA_20240515.csv", na  = "")
+    write_csv(output_path, na  = "")
+  
+  drive_upload(output_path,
+               as_id("18IyAdidfynvJEqfdITNg5fOjai7VxiFW"),
+               basename(output_path),
+               type = "spreadsheet",
+               overwrite = TRUE)
+  
