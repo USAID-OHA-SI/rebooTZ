@@ -4,7 +4,7 @@
 # REF ID:   c9751ba1 
 # LICENSE:  MIT
 # DATE:     2024-05-06
-# UPDATED:  2024-05-08
+# UPDATED:  2024-05-30
 # NOTE:     Adapted from FY24Q1_QuarterlyReview_TX.R
 
 
@@ -12,6 +12,7 @@
   
   library(tidyverse)
   library(gagglr)
+  library(grabr)
   library(glue)
   library(scales, warn.conflicts = FALSE)
   library(systemfonts)
@@ -24,7 +25,7 @@
   library(lubridate)
   library(ggrepel)
   
-  source("R/pdap_pull.R")
+  # source("R/pdap_pull.R")
 
 # GLOBAL VARIABLES --------------------------------------------------------
   
@@ -45,24 +46,25 @@
 
 # PDAP WAVE API -----------------------------------------------------------
   
-  # #get TZA UID
-  # cntry_uid <- pepfar_country_list %>% 
-  #   filter(country == "Tanzania") %>% 
-  #   pull(country_uid)
-  # 
-  # #establish parameters to pass into POST API
-  # post_body <- list(
-  #   daily_frozen='daily',
-  #   fiscal_year=list(2023, 2024),
-  #   funding_agency = list("USAID"),
-  #   indicator=list("TX_CURR","TX_ML","TX_CURR_LAG2", "TX_NET_NEW","TX_NEW",
-  #                  "TX_RTT","PMTCT_STAT", "PMTCT_STAT_POS", "PMTCT_ART"),
-  #   uid_hierarchy_list=list(stringr::str_glue('-|-|{cntry_uid}')))
-  # 
-  # #run API
-  # pdap_pull(post_body)
+  #get TZA UID
+  cntry_uid <- pepfar_country_list %>%
+    filter(country == "Tanzania") %>%
+    pull(country_uid)
+
+  #establish parameters to pass into POST API
+  post_body <- list(
+    daily_frozen='frozen',
+    fiscal_year=list(2023, 2024),
+    funding_agency = list("USAID"),
+    indicator=list("TX_CURR","TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                   "TX_ML_IIT_less_three_mo", "TX_CURR_LAG2", "TX_NET_NEW","TX_NEW",
+                   "TX_RTT","PMTCT_STAT", "PMTCT_STAT_POS", "PMTCT_ART"),
+    uid_hierarchy_list=list(stringr::str_glue('-|-|{cntry_uid}')))
+
+  #run API
+  wave_process_query(post_body)
   
-  genie_path <- return_latest("Data", "Genie")
+  genie_path <- return_latest("Data", "PDAPWave")
   
   meta <- get_metadata(genie_path, caption_note = "USAID")
 
@@ -76,7 +78,8 @@
     filter(operatingunit == "Tanzania",
            funding_agency == "USAID",
            fiscal_year >= 2021,
-           indicator %in% c("TX_CURR", "TX_ML", "TX_NET_NEW", "TX_NET_NEW_SHIFT",
+           indicator %in% c("TX_CURR","TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                            "TX_ML_IIT_less_three_mo", "TX_NET_NEW", "TX_NET_NEW_SHIFT",
                             "TX_NEW", "TX_PVLS", "TX_RTT", "PMTCT_ART", "PMTCT_STAT_POS"))
 
   
@@ -848,8 +851,13 @@
 # IIT ---------------------------------------------------------------------
 
   df_iit <- df %>% 
-    filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW"),
+    filter(indicator %in% c("TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                            "TX_ML_IIT_less_three_mo", "TX_CURR", "TX_NEW"),
            snu1 %in% snu_sel) %>%
+    mutate(indicator = case_match(indicator,
+                                  c("TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                                    "TX_ML_IIT_less_three_mo") ~ "TX_ML_IIT",
+                                  .default = indicator)) %>% 
     pluck_totals() %>%
     group_by(fiscal_year, snu1, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
@@ -862,7 +870,7 @@
     mutate(tx_curr_lag1 = lag(tx_curr, n = 1, order_by = period)) %>% 
     ungroup() %>% 
     rowwise() %>% 
-    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    mutate(iit = tx_ml_iit / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
     ungroup()
   
   df_snu_lab <- df_iit %>% 
@@ -892,7 +900,7 @@
     geom_smooth(aes(weight = tx_curr_lag1, group = snu1_lab),
                 method = "loess",
                 formula = "y ~ x", se = FALSE, na.rm = TRUE,
-                size = 1.5, color = golden_sand) +
+                linewidth = 1.5, color = golden_sand) +
     facet_wrap(~snu1_lab) +
     scale_size(label = comma, guide = NULL) +
     scale_x_discrete(labels = pd_brks[2:length(pd_brks)]) +
@@ -904,7 +912,7 @@
          size = "Site TX_CURR (1 period prior)",
          title = glue("Regional increases in IIT in {meta$curr_pd} across USAID/Tanzania") %>% toupper,
          subtitle = "Each point represents a council's IIT",
-         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
+         caption = glue("Note: IIT = TX_ML (IIT) / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
                         {meta$caption}")) +
     si_style() +
     theme(panel.spacing = unit(.5, "line"),
@@ -920,10 +928,15 @@
 # IIT - PEDS --------------------------------------------------------------
 
   df_iit_peds <- df %>% 
-    filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW"),
+    filter(indicator %in% c("TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                            "TX_ML_IIT_less_three_mo", "TX_CURR", "TX_NEW"),
            standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARTNoContactReason/HIVStatus"),
            snu1 %in% snu_sel,
            trendscoarse == "<15") %>%
+    mutate(indicator = case_match(indicator,
+                                  c("TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                                    "TX_ML_IIT_less_three_mo") ~ "TX_ML_IIT",
+                                  .default = indicator)) %>% 
     group_by(fiscal_year, snu1, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
     reshape_msd(include_type = FALSE) %>% 
@@ -937,7 +950,7 @@
            tx_max = max(tx_max)) %>% 
     ungroup() %>% 
     rowwise() %>% 
-    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    mutate(iit = tx_ml_iit / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
     ungroup()
   
   df_snu_lab_peds <- df_iit_peds %>% 
@@ -980,7 +993,7 @@
          size = "Site TX_CURR (1 period prior)",
          title = glue("Regional increases in Peds IIT in {meta$curr_pd} across USAID/Tanzania") %>% toupper,
          subtitle = "Each point represents a council's IIT",
-         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
+         caption = glue("Note: IIT = TX_ML (IIT)/ TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
                         Regions limited to more than {curr_limiter} TX_CURR <15
                         {meta$caption}")) +
     si_style() +
@@ -996,7 +1009,12 @@
 # IIT - USAID -------------------------------------------------------------
 
   df_iit_usaid <- df %>% 
-    filter(indicator %in% c("TX_ML", "TX_CURR", "TX_NEW")) %>%
+    filter(indicator %in% c("TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                            "TX_ML_IIT_less_three_mo", "TX_CURR", "TX_NEW")) %>% 
+    mutate(indicator = case_match(indicator,
+                                  c("TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
+                                    "TX_ML_IIT_less_three_mo") ~ "TX_ML_IIT",
+                                  .default = indicator)) %>% 
     pluck_totals() %>%
     group_by(fiscal_year, funding_agency, cop22_psnu, indicator) %>% 
     summarise(across(starts_with("qtr"), \(x) sum(x, na.rm = TRUE)), .groups = "drop") %>% 
@@ -1009,7 +1027,7 @@
     mutate(tx_curr_lag1 = lag(tx_curr, n = 1, order_by = period)) %>% 
     ungroup() %>% 
     rowwise() %>% 
-    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    mutate(iit = tx_ml_iit / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
     ungroup()
   
   df_iit_usaid %>%
@@ -1032,7 +1050,7 @@
          size = "Site TX_CURR (1 period prior)",
          title = glue("Increated IIT in {meta$curr_pd} across USAID/Tanzania") %>% toupper,
          subtitle = "Each point represents a council's IIT",
-         caption = glue("Note: IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
+         caption = glue("Note: IIT = TX_ML (IIT) / TX_CURR_LAG1 + TX_NEW; ITT capped to 15%
                         {meta$caption}")) +
     si_style() +
     theme(plot.subtitle = element_markdown())
