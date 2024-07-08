@@ -4,7 +4,7 @@
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
-# UPDATED:  2024-05-28
+# UPDATED:  2024-07-08
 
 
 
@@ -29,6 +29,7 @@
   library(glue)
   library(janitor, warn.conflicts = FALSE)
   library(googledrive)
+  library(aws.s3)
   #oha
   library(gagglr) ##install.packages('gagglr', repos = c('https://usaid-oha-si.r-universe.dev', 'https://cloud.r-project.org'))
   library(grabr)  
@@ -38,20 +39,37 @@
   library(tidytext)
   library(patchwork)
   library(ggtext)
+  library(waffle)
 
 # GLOBAL VARIABLES --------------------------------------------------------
   
-  load_secrets()
-
+  load_secrets("datim")
+  
   ref_id <- "a487bcd2"  #a reference to be places in viz captions 
   
   cntry <- "Tanzania"
   
-  path_genie <- return_latest("Data","Genie")
+  fy <- 2023
   
-  meta <- get_metadata(path_genie)  #extract MSD metadata
+  # path_genie <- return_latest("Data","Genie")
+  # 
+  # meta <- get_metadata(path_genie)  #extract MSD metadata
   
+  path_pdap <- si_path() %>%
+    return_latest("Site_IM_Recent_Tanz.*parquet")
   
+  s3_bucket_prefix <- 'usaid/'
+  
+  path_pdap_hrh <- s3_objects(bucket = pdap_bucket("write"),
+                              prefix = s3_bucket_prefix,
+                              access_key = pdap_access(),
+                              secret_key = pdap_secret()) %>%
+    filter(str_detect(key, "HRH.*parquet")) %>%
+    pull(key)
+  
+  meta <- get_metadata(path_pdap)  #extract MSD metadata
+
+ 
 # DATIM API ---------------------------------------------------------------
   # 
   # info <- get_outable() %>% 
@@ -173,21 +191,31 @@
   
 # IMPORT ------------------------------------------------------------------
   
-  df_genie <- read_psd(path_genie)
+  df_msd <- read_psd(path_pdap)
+
+  df_hrh <- read_psd(path_pdap_hrh)
   
 
 # MUNGE -------------------------------------------------------------------
 
   #aggregate to one observation by site
-  df_sites <- df_genie %>%
+  df_sites <- df_msd %>%
+    filter(fiscal_year == fy,
+           indicator %in% c("TX_CURR", "HTS_TST"),
+           standardizeddisaggregate == "Total Numerator") %>% 
     group_by(fiscal_year, country, funding_agency, snu1, sitetype, sitename, orgunituid, indicator) %>%
     summarise(cumulative = sum(cumulative, na.rm = TRUE),
               .groups = "drop") %>% 
     filter(cumulative != 0)
   
+  # df_sites_w <- df_sites %>% 
+  #   pivot_wider(names_from = c(indicator, fiscal_year),
+  #                             names_glue = "{tolower(indicator)}_fy{str_sub(fiscal_year, -2)}",
+  #               values_from = cumulative)
+  
   df_sites_w <- df_sites %>% 
-    pivot_wider(names_from = c(indicator, fiscal_year),
-                              names_glue = "{tolower(indicator)}_fy{str_sub(fiscal_year, -2)}",
+    pivot_wider(names_from = indicator,
+                names_glue = "{tolower(indicator)}",
                 values_from = cumulative)
 
   #clean columns
@@ -204,8 +232,20 @@
   df_full <- df_full %>% 
     clean_agency() %>% 
     relocate(sitetype, facility_type:clinic_hours, .after = orgunituid) %>% 
-    mutate(ownership_type = ifelse(is.na(ownership_type), "Not Classifed", ownership_type))
+    mutate(ownership_type = ifelse(is.na(ownership_type), "Not Classified", ownership_type))
 
+  df_hrh %>% 
+    glimpse()
+  
+# EXPORT ------------------------------------------------------------------
+
+  output_path <- glue("Dataout/TZA_TX_SA_{str_remove_all(Sys.Date(), '-')}.csv")
+  
+  df_full %>% 
+    write_csv(output_path, na  = "")
+
+  
+  
 # VIZ ---------------------------------------------------------------------
   
  df_full %>% 
@@ -331,4 +371,49 @@
                basename(output_path),
                type = "spreadsheet",
                overwrite = TRUE)
+
+# VIZ 2 -------------------------------------------------------------------
+
+  df_viz_agg <- df_full %>% 
+    filter(!is.na(tx_curr)) %>% 
+    group_by(funding_agency, ownership_type) %>% 
+    summarise(cumulative = sum(tx_curr, na.rm = TRUE),
+              sites = n(),
+              .groups = "drop") %>% 
+    mutate(ownership_type = factor(ownership_type,
+                                    c("Private",
+                                      "Government: MOH", "Government: Other",
+                                      "NGO or Non-Profit", "Not Classified")),
+           funding_agency = factor(funding_agency, c("USAID", "CDC", "DOD"))) %>%
+    group_by(funding_agency) %>% 
+    mutate(agency_private = ifelse(ownership_type == "Private", sites, 0),
+           agency_private = max(agency_private),
+           agency_label = glue("<span style = 'font-size:14pt'>**{funding_agency}**</span><br>{agency_private} out of {number_format(big.mark = ',')(sum(sites))} total sites are <span style = 'color:{orchid_bloom};'>privately owned</span>")
+           ) %>% 
+    ungroup() %>% 
+    arrange(funding_agency) %>% 
+    mutate(agency_label = fct_inorder(agency_label)) %>% 
+    arrange(ownership_type)
   
+  
+  df_viz_agg %>% 
+    ggplot(aes(fill = ownership_type, values = sites)) +
+    geom_waffle(color = "white",
+                n_rows = 20,
+                size = .1) +
+    facet_wrap(~agency_label, ncol = 1) +
+    scale_fill_manual(values = c("Private" = orchid_bloom,
+                                 "Government: MOH" = si_palettes$slate_t[2], 
+                                 "Government: Other" = si_palettes$slate_t[3],
+                                 "NGO or Non-Profit" = si_palettes$slate_t[4], 
+                                 "Not Classified" = si_palettes$tango_t[4])) +
+    coord_equal() +
+    coord_cartesian(clip = "off") +
+    labs(subtitle = "Number of sites reporting patients on treatment (TX_CURR) by ownership type in FY23",
+         caption = glue("Note: Other ownership type categories include Government: MOH or Other and NGO/Non-Profit. Sites without ownership type are shaded orange 
+                        {meta$caption} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]")) +
+    si_style_nolines() +
+    theme(axis.text = element_blank(),
+          legend.position = "none",
+          strip.text = element_markdown())
+
