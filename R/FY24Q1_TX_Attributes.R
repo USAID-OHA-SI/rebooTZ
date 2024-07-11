@@ -4,7 +4,7 @@
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
-# UPDATED:  2024-07-08
+# UPDATED:  2024-07-10
 
 
 
@@ -52,7 +52,6 @@
   fy <- 2023
   
   # path_genie <- return_latest("Data","Genie")
-  # 
   # meta <- get_metadata(path_genie)  #extract MSD metadata
   
   path_pdap <- si_path() %>%
@@ -68,6 +67,11 @@
     pull(key)
   
   meta <- get_metadata(path_pdap)  #extract MSD metadata
+  # meta <- get_metadata()  #extract MSD metadata
+
+  #fill color by facility type
+  fill_types <- si_rampr("orchid_bloom_c", 5)
+  names(fill_types) <- c("Hospital", "Primary Health Center", "Dispensary/Pharmacy",  "Health Post", "Other Facility")
 
  
 # DATIM API ---------------------------------------------------------------
@@ -245,7 +249,7 @@
     write_csv(output_path, na  = "")
 
   
-  
+
 # VIZ ---------------------------------------------------------------------
   
  df_full %>% 
@@ -374,18 +378,27 @@
 
 # VIZ 2 -------------------------------------------------------------------
 
+  df_full <- return_latest("Dataout", "TZA_TX_SA") %>% 
+    read_csv()
+  
+##site count x agency
+  
   df_viz_agg <- df_full %>% 
-    filter(!is.na(tx_curr)) %>% 
-    group_by(funding_agency, ownership_type) %>% 
-    summarise(cumulative = sum(tx_curr, na.rm = TRUE),
+    filter(sitetype == "Facility") %>% 
+    pivot_longer(c(hts_tst, tx_curr),
+                 names_to = "indicator",
+                 values_drop_na = TRUE) %>% 
+    mutate(indicator = toupper(indicator)) %>% 
+    group_by(funding_agency, ownership_type, indicator) %>% 
+    summarise(cumulative = sum(value, na.rm = TRUE),
               sites = n(),
               .groups = "drop") %>% 
     mutate(ownership_type = factor(ownership_type,
                                     c("Private",
                                       "Government: MOH", "Government: Other",
                                       "NGO or Non-Profit", "Not Classified")),
-           funding_agency = factor(funding_agency, c("USAID", "CDC", "DOD"))) %>%
-    group_by(funding_agency) %>% 
+           funding_agency = factor(funding_agency, c("CDC","USAID", "DOD"))) %>%
+    group_by(funding_agency, indicator) %>% 
     mutate(agency_private = ifelse(ownership_type == "Private", sites, 0),
            agency_private = max(agency_private),
            agency_label = glue("<span style = 'font-size:14pt'>**{funding_agency}**</span><br>{agency_private} out of {number_format(big.mark = ',')(sum(sites))} total sites are <span style = 'color:{orchid_bloom};'>privately owned</span>")
@@ -397,6 +410,7 @@
   
   
   df_viz_agg %>% 
+    filter(indicator == "TX_CURR") %>% 
     ggplot(aes(fill = ownership_type, values = sites)) +
     geom_waffle(color = "white",
                 n_rows = 20,
@@ -407,13 +421,157 @@
                                  "Government: Other" = si_palettes$slate_t[3],
                                  "NGO or Non-Profit" = si_palettes$slate_t[4], 
                                  "Not Classified" = si_palettes$tango_t[4])) +
-    coord_equal() +
+    # coord_equal(clip = "off") +
     coord_cartesian(clip = "off") +
-    labs(subtitle = "Number of sites reporting patients on treatment (TX_CURR) by ownership type in FY23",
+    labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
+         subtitle = "Tanzania | FY23 | TX_CURR",
          caption = glue("Note: Other ownership type categories include Government: MOH or Other and NGO/Non-Profit. Sites without ownership type are shaded orange 
                         {meta$caption} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]")) +
     si_style_nolines() +
     theme(axis.text = element_blank(),
           legend.position = "none",
           strip.text = element_markdown())
+  
+  si_save("Images/FY23Q4_TZA_SA_ownership-tx.png")
+  
+  df_viz_agg %>% 
+    filter(indicator == "HTS_TST") %>% 
+    ggplot(aes(fill = ownership_type, values = sites)) +
+    geom_waffle(color = "white",
+                n_rows = 20,
+                size = .1) +
+    facet_wrap(~agency_label, ncol = 1) +
+    scale_fill_manual(values = c("Private" = orchid_bloom,
+                                 "Government: MOH" = si_palettes$slate_t[2], 
+                                 "Government: Other" = si_palettes$slate_t[3],
+                                 "NGO or Non-Profit" = si_palettes$slate_t[4], 
+                                 "Not Classified" = si_palettes$tango_t[4])) +
+    # coord_equal(clip = "off") +
+    coord_cartesian(clip = "off") +
+    labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
+         subtitle = "Tanzania | FY23 | TX_CURR",
+         caption = glue("Note: Other ownership type categories include Government: MOH or Other and NGO/Non-Profit. Sites without ownership type are shaded orange 
+                       Communities do not have ownership types and are excluded
+                         {meta$caption} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]")) +
+    si_style_nolines() +
+    theme(axis.text = element_blank(),
+          legend.position = "none",
+          strip.text = element_markdown())
 
+  si_save("Images/FY23Q4_TZA_SA_ownership-hts.png")
+
+  ##private sites by type
+  df_viz_pr_type <- df_full %>% 
+    filter(sitetype == "Facility") %>% 
+    pivot_longer(c(hts_tst, tx_curr),
+                 names_to = "indicator",
+                 values_drop_na = TRUE) %>% 
+    mutate(indicator = toupper(indicator)) %>% 
+    filter(ownership_type == "Private") %>% 
+    group_by(indicator, funding_agency, facility_type) %>% 
+    summarise(cumulative = sum(value, na.rm = TRUE),
+              sites = n(),
+              .groups = "drop") %>% 
+    mutate(funding_agency = factor(funding_agency, c("CDC","USAID", "DOD")),
+           type_order = cumulative) %>% 
+    pivot_longer(c(cumulative, sites),
+                 names_to = "type")
+  
+  #TX_CURR
+  v1_type <- df_viz_pr_type %>% 
+    filter(type == "cumulative",
+           indicator == "TX_CURR") %>% 
+    mutate(type = "patients currently<br>receiving ART") %>% 
+    ggplot(aes(value, fct_rev(funding_agency), fill = facility_type)) +
+    geom_col() +
+    # geom_vline(xintercept = seq(1:30), color = "white") +
+    geom_text(aes(label = label_number(big.mark = ",")(value)), hjust = 0,
+              family = "Source Sans Pro", color = matterhorn) +
+    facet_grid(type ~ fct_reorder(facility_type, value, sum) %>% fct_rev, switch = "y") +
+    # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
+    scale_fill_manual(values = fill_types) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL) +
+    si_style_xgrid() +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none",
+          strip.text.y = element_markdown(face = "bold", hjust = .5),
+          strip.placement = "outside")
+  
+  
+  v2_type <- df_viz_pr_type %>% 
+    filter(type == "sites",
+           indicator == "TX_CURR") %>% 
+    mutate(type = "sites providing<br>ART") %>% 
+    ggplot(aes(value, fct_rev(funding_agency), fill = facility_type)) +
+    geom_col() +
+    geom_text(aes(label = label_number(big.mark = ",")(value)), hjust = -.25,
+              family = "Source Sans Pro", color = matterhorn) +
+    facet_grid(type ~ fct_reorder(facility_type, value, sum) %>% fct_rev, switch = "y") +
+    # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
+    scale_fill_manual(values = fill_types) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL) +
+    si_style_xgrid() +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none",
+          strip.text.y = element_markdown(face = "bold", hjust = .5),
+          strip.placement = "outside")
+  
+  v1_type / v2_type +
+    plot_annotation(title = "The plurality of ART provided by the private sector are offered by CDC in hospitals" %>% toupper,
+                    subtitle = "Tanzania | FY23 | TX_CURR | Private funding type only",
+                    caption = glue("{meta$caption} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]"),
+                    theme = si_style())
+
+  si_save("Images/FY23Q4_TZA_SA_facility-tx.png")
+  
+  #HTS
+  v3_type <- df_viz_pr_type %>% 
+    filter(type == "cumulative",
+           indicator == "HTS_TST") %>% 
+    mutate(type = "individuals who received<br>testing Services") %>% 
+    ggplot(aes(value, fct_rev(funding_agency), fill = facility_type)) +
+    geom_col() +
+    geom_text(aes(label = label_number(big.mark = ",")(value)), hjust = -.1,
+              family = "Source Sans Pro", color = matterhorn) +
+    facet_grid(type ~ fct_reorder(facility_type, type_order, sum) %>% fct_rev, switch = "y") +
+    # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
+    scale_fill_manual(values = fill_types) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL) +
+    si_style_xgrid() +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none",
+          strip.text.y = element_markdown(face = "bold", hjust = .5),
+          strip.placement = "outside")
+  
+  
+  v4_type <- df_viz_pr_type %>% 
+    filter(type == "sites",
+           indicator == "HTS_TST") %>% 
+    mutate(type = "sites providing<br>testing") %>% 
+    ggplot(aes(value, fct_rev(funding_agency), fill = facility_type)) +
+    geom_col() +
+    geom_text(aes(label = label_number(big.mark = ",")(value)), hjust = -.25,
+              family = "Source Sans Pro", color = matterhorn) +
+    facet_grid(type ~ fct_reorder(facility_type, type_order, sum) %>% fct_rev, switch = "y") +
+    # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
+    scale_fill_manual(values = fill_types) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL) +
+    si_style_xgrid() +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none",
+          strip.text.y = element_markdown(face = "bold", hjust = .5),
+          strip.placement = "outside")
+
+  v3_type / v4_type +
+    plot_annotation(title = "The plurality of testing by the private sector are offered by CDC in hospitals" %>% toupper,
+                    subtitle = "Tanzania | FY23 | HTS_TST | Private funding type only",
+                    caption = glue("{meta$caption} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]"),
+                    theme = si_style())
+  
+  si_save("Images/FY23Q4_TZA_SA_facility-hts.png")
+  
+ 
