@@ -1,6 +1,7 @@
 # PROJECT:  rebooTZ
 # PURPOSE:  Combine TX + Site Attributes
 # AUTHOR:   A.Chafetz | USAID
+# URL:      https://drive.google.com/drive/folders/1HjiCRT5-UTwuT-dwAsgEk6xbX6qCjU1O
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
@@ -220,6 +221,10 @@
 
 # LOAD DATA FOR VIZ -------------------------------------------------------
 
+  #merged files can be found on Google Drive
+  # drive_ls(gd_data_folder)
+  # drive_browse(gd_data_folder)
+  
   if(!exists('df_full')){
     df_full <- return_latest("Dataout", "TZA_TX_SA") %>% 
       read_csv()
