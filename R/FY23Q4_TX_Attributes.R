@@ -226,7 +226,7 @@
   # drive_browse(gd_data_folder)
   
   if(!exists('df_full')){
-    df_full <- return_latest("Dataout", "TZA_TX_SA") %>% 
+    df_full <- return_latest("Dataout", "TZA_TX_SA_") %>% 
       read_csv()
   }
   
@@ -384,8 +384,8 @@
                 size = .1) +
     facet_wrap(~agency_label, ncol = 1) +
     scale_fill_manual(values = fill_ownership) +
-    # coord_equal(clip = "off") +
-    coord_cartesian(clip = "off") +
+    coord_equal(ratio = .5, clip = "off") +
+    # coord_cartesian(clip = "off") +
     labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
          subtitle = "Tanzania | FY23 | TX_CURR",
          caption = glue("Note: Other ownership type categories include Government: MOH or Other and NGO/Non-Profit. Sites without ownership type are shaded orange 
