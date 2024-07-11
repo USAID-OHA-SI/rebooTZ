@@ -4,22 +4,7 @@
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
-# UPDATED:  2024-07-10
-
-
-
-# DATIM METADATA ----------------------------------------------------------
-
-# Site By IM Extract
-# DATIM data as of: 3/15/2024, 19:44:38 UTC
-# Genie report updated: 3/16/2024, 05:46:27 UTC
-# Current period(s): 2022 Q1, 2022 Q2, 2022 Q3, 2022 Q4, 2022 Target, 2023 Q1, 2023 Q2, 2023 Q3, 2023 Q4, 2023 Target, 2024 Q1, 2024 Target
-
-# Operating Unit: Tanzania
-# Daily/Frozen: Frozen
-# Indicator: TX_CURR
-# Standardized Disaggregate: Total Numerator
-# Fiscal Year: 2024, 2023, 2022
+# UPDATED:  2024-07-11
 
 
 # DEPENDENCIES ------------------------------------------------------------
@@ -51,9 +36,6 @@
   
   fy <- 2023
   
-  # path_genie <- return_latest("Data","Genie")
-  # meta <- get_metadata(path_genie)  #extract MSD metadata
-  
   path_pdap <- si_path() %>%
     return_latest("Site_IM_Recent_Tanz.*parquet")
   
@@ -73,85 +55,6 @@
   fill_types <- si_rampr("orchid_bloom_c", 5)
   names(fill_types) <- c("Hospital", "Primary Health Center", "Dispensary/Pharmacy",  "Health Post", "Other Facility")
 
- 
-# DATIM API ---------------------------------------------------------------
-  # 
-  # info <- get_outable() %>% 
-  #   filter(country == cntry) %>% 
-  #   select(country, country_uid, facility_lvl) %>% 
-  #   as.list()
-  # 
-  # 
-  # url <- paste0("https://final.datim.org/api/analytics.json?",
-  #               "dimension=ou:", info$country_uid, ";LEVEL-", info$facility_lvl, "&", #hierarchy
-  #               "filter=RUkVjD3BsS1&", #top level
-  #               "filter=IeMmjHyBUpi:Jh0jDM5yQ2E&", #Targets / Results: Results
-  #               "dimension=bw8KHXzxd9i&", #Funding Agency
-  #               "dimension=CH5v24DUJO0&", #Site Attribute: Ownership Type
-  #               "dimension=SbeNLojYo3t&", #Site Attribute: Facility Type
-  #               "dimension=LxhLO68FcXm:MvszPTQrUhy&", #indicator: TX_CURR
-  #               "dimension=pe:2021Oct;2022Oct;2023Oct&", #periods
-  #               "displayProperty=SHORTNAME&skipMeta=false&hierarchyMeta=false")
-  # 
-  # df_datim <- datim_process_query(url)
-  # 
-  # #check
-  # # df_datim %>% 
-  # #   janitor::clean_names() %>% 
-  # #   clean_agency() %>% 
-  # #   mutate(period = period %>% str_sub(-4) %>% as.numeric(), .before = value) %>% 
-  # #   count(funding_agency, period, wt = value) %>% 
-  # #   pivot_wider(names_from = period, 
-  # #               names_glue = "fy{str_sub(period, -2)}",
-  # #               values_from = n)
-  # 
-  # df_datim_clean <- df_datim %>% 
-  #   rename(orgunit = `Organisation unit`,
-  #          funding_agency = `Funding Agency`,
-  #          ownership_type = `SA Own Type`,
-  #          facility_type = `SA Facility Type`,
-  #          indicator = `Technical Area`
-  #          ) %>% 
-  #   rename_with(tolower) %>% 
-  #   clean_agency() %>% 
-  #   mutate(ownership_type = str_remove(ownership_type, "^OWN "),
-  #          facility_type = str_remove(facility_type, "^FT ")
-  #   ) %>%
-  #   mutate(fiscal_year = period %>% str_sub(-4) %>% as.numeric(), .before = value) %>% 
-  #   arrange(fiscal_year) %>% 
-  #   select(-period) %>% 
-  #   pivot_wider(names_from = c(indicator, fiscal_year),
-  #               names_glue = "{tolower(indicator)}_fy{str_sub(fiscal_year, -2)}") %>% 
-  #   arrange(funding_agency)
-  # 
-  # df_orgs <- datim_orgunits(info$country, reshape = TRUE) %>% 
-  #   select(orgunituid, country, snu1)
-  # 
-  # df_datim_clean <- df_datim_clean %>% 
-  #   tidylog::right_join(df_orgs, .) %>% 
-  #   relocate(orgunit, 1)
-  # 
-  # write_csv(df_datim_clean, "Dataout/TZA_TX_SA.csv", na  = "")
-  
-
-# REVIEW ------------------------------------------------------------------
-
-  # df_datim_clean %>% 
-  #   count(funding_agency, ownership_type) %>% 
-  #   mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
-  #   arrange(desc(ownership_type)) %>% 
-  #   pivot_wider(names_from = funding_agency, values_from = n)
-  # 
-  # df_datim_clean %>% 
-  #   count(funding_agency, ownership_type, wt = tx_curr_fy24) %>% 
-  #   mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
-  #   arrange(desc(ownership_type)) %>%
-  #   pivot_wider(names_from = funding_agency, values_from = n)
-  # 
-  # 
-  # df_datim_clean %>% 
-  #   count(funding_agency, wt = tx_curr_fy24) 
-  
   
 # PDAP WAVE API -----------------------------------------------------------
 
@@ -202,7 +105,7 @@
 
 # MUNGE -------------------------------------------------------------------
 
-  #aggregate to one observation by site
+  #aggregate to one observation by site and indicator
   df_sites <- df_msd %>%
     filter(fiscal_year == fy,
            indicator %in% c("TX_CURR", "HTS_TST"),
@@ -211,25 +114,21 @@
     summarise(cumulative = sum(cumulative, na.rm = TRUE),
               .groups = "drop") %>% 
     filter(cumulative != 0)
-  
-  # df_sites_w <- df_sites %>% 
-  #   pivot_wider(names_from = c(indicator, fiscal_year),
-  #                             names_glue = "{tolower(indicator)}_fy{str_sub(fiscal_year, -2)}",
-  #               values_from = cumulative)
-  
+
+  #pivot wide to have only one observation per site
   df_sites_w <- df_sites %>% 
     pivot_wider(names_from = indicator,
                 names_glue = "{tolower(indicator)}",
                 values_from = cumulative)
 
-  #clean columns
+  #clean attribute columns to make them easier to work with
   df_attr <- df_attr %>%
     clean_names() %>%
     select(orgunituid = datim_uid,
            facility_type:clinic_hours)%>%
     mutate(across(facility_type:clinic_hours,  \(x) na_if(x, "")))
 
-  #join with attributes
+  #join MER with site attributes
   df_full <- tidylog::left_join(df_sites_w, df_attr)
   
   #clean
@@ -238,8 +137,20 @@
     relocate(sitetype, facility_type:clinic_hours, .after = orgunituid) %>% 
     mutate(ownership_type = ifelse(is.na(ownership_type), "Not Classified", ownership_type))
 
-  df_hrh %>% 
-    glimpse()
+  #subset HRH data to FY23 in TDA
+  df_hrh <- df_hrh %>% 
+    filter(country == cntry,
+           fiscal_year == 2023)
+
+  #aggregate HRH data by orgunit and cadre  
+  df_hrh <- df_hrh %>% 
+    group_by(fiscal_year, orgunituid, funding_agency, cadre) %>% 
+    summarise(across(c(annual_fte, individual_count), \(x) sum(x, na.rm = TRUE)),
+              .groups = "drop") %>% 
+    clean_agency()
+  
+  #join with MER and attributes
+  df_full_hrh <- tidylog::left_join(df_full, df_hrh)
   
 # EXPORT ------------------------------------------------------------------
 
@@ -248,7 +159,27 @@
   df_full %>% 
     write_csv(output_path, na  = "")
 
+  output_path_hrh <- glue("Dataout/TZA_TX_SA-HRH_{str_remove_all(Sys.Date(), '-')}.csv")
   
+  df_full_hrh %>% 
+    write_csv(output_path_hrh, na  = "")
+  
+
+# UPLOAD TO GDRIVE --------------------------------------------------------
+
+  return_latest("Dataout", "TZA_TX_SA_") %>% 
+    drive_upload(output_path,
+                 as_id("1hqyy8aCwBZih0YQfI160WA9Hdrc3lBSl"),
+                 basename(output_path),
+                 type = "spreadsheet",
+                 overwrite = TRUE)
+  
+  return_latest("Dataout", "TZA_TX_SA-HRH_") %>% 
+  drive_upload(output_path_hrh,
+               as_id("1hqyy8aCwBZih0YQfI160WA9Hdrc3lBSl"),
+               basename(output_path),
+               type = "spreadsheet",
+               overwrite = TRUE)
 
 # VIZ ---------------------------------------------------------------------
   
@@ -358,24 +289,7 @@
   si_save("Images/FY24Q1_TZA_SA-tx.png")
   
   
-  df_full %>% 
-    count(facility_type, ownership_type) %>% 
-    mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
-    arrange(desc(ownership_type)) %>% 
-    pivot_wider(names_from = facility_type, values_from = n)
   
-  
-  output_path <- "Dataout/TZA_TX_SA_20240515.csv"
-  
-  df_full %>% 
-    write_csv(output_path, na  = "")
-  
-  drive_upload(output_path,
-               as_id("18IyAdidfynvJEqfdITNg5fOjai7VxiFW"),
-               basename(output_path),
-               type = "spreadsheet",
-               overwrite = TRUE)
-
 # VIZ 2 -------------------------------------------------------------------
 
   df_full <- return_latest("Dataout", "TZA_TX_SA") %>% 
