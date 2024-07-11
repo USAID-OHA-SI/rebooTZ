@@ -28,32 +28,57 @@
 
 # GLOBAL VARIABLES --------------------------------------------------------
   
+  #DATIM Credentials for pulling site attributes
   load_secrets("datim")
   
-  ref_id <- "a487bcd2"  #a reference to be places in viz captions 
-  
+  #focal country
   cntry <- "Tanzania"
   
+  #focal fiscal year
   fy <- 2023
   
-  path_pdap <- si_path() %>%
-    return_latest("Site_IM_Recent_Tanz.*parquet")
+  #working locally (or PEPFAR Workbench)? (for filepaths)
+  is_local <- !grepl("rstudio-server.*datim.org", as.list(Sys.info())$nodename)
   
-  s3_bucket_prefix <- 'usaid/'
+  #filepaths
+  if(!is_local){
+    path_msd <- si_path() %>%
+      return_latest("Site_IM_Recent_Tanz.*parquet")
+    
+    s3_bucket_prefix <- 'usaid/'
+    
+    path_hrh <- s3_objects(bucket = pdap_bucket("write"),
+                           prefix = s3_bucket_prefix,
+                           access_key = pdap_access(),
+                           secret_key = pdap_secret()) %>%
+      filter(str_detect(key, "HRH.*parquet")) %>%
+      pull(key)
+  } else {
+    path_msd <- si_path() %>%
+      return_latest("Site_IM_FY.*_Tanz")
+    
+    path_hrh <- si_path() %>%
+      return_latest("HRH")
+  }
   
-  path_pdap_hrh <- s3_objects(bucket = pdap_bucket("write"),
-                              prefix = s3_bucket_prefix,
-                              access_key = pdap_access(),
-                              secret_key = pdap_secret()) %>%
-    filter(str_detect(key, "HRH.*parquet")) %>%
-    pull(key)
-  
-  meta <- get_metadata(path_pdap)  #extract MSD metadata
-  # meta <- get_metadata()  #extract MSD metadata
+  #store MSD metadata
+  meta <- get_metadata(path_msd)  #extract MSD metadata
 
+  #drive data folder for uploading dataset
+  gd_data_folder <- as_id("1hqyy8aCwBZih0YQfI160WA9Hdrc3lBSl")
+
+  ##VIZ
+  
+  #reference for viz captions
+  ref_id <- "a487bcd2" 
+  
+  #fill color by ownership type
+  fill_ownership <- c(orchid_bloom, si_palettes$slate_t[2:4], si_palettes$tango_t[4])
+  names(fill_ownership) <- c("Private", "Government: MOH", "Government: Other", "NGO or Non-Profit", "Not Classified")
+  
   #fill color by facility type
-  fill_types <- si_rampr("orchid_bloom_c", 5)
-  names(fill_types) <- c("Hospital", "Primary Health Center", "Dispensary/Pharmacy",  "Health Post", "Other Facility")
+  fill_facility <- si_rampr("orchid_bloom_c", 5)
+  names(fill_facility) <- c("Hospital", "Primary Health Center", "Dispensary/Pharmacy",  "Health Post", "Other Facility")
 
   
 # PDAP WAVE API -----------------------------------------------------------
@@ -91,19 +116,21 @@
     filter(country == cntry) %>%
     pull(country_iso)
 
-  # Extract Organisation Units data for a specific country - All levels with child / parent links
-  df_attr <- datim_sqlviews(view_name = {sqlview_name},
-                             dataset = TRUE,
-                             query = list(type = "variable", params = list("OU" = cntry_iso)))
-  
+ 
 # IMPORT ------------------------------------------------------------------
   
-  df_msd <- read_psd(path_pdap)
+  #MER data
+  df_msd <- read_psd(path_msd)
 
-  df_hrh <- read_psd(path_pdap_hrh)
+  #HRH data
+  df_hrh <- read_psd(path_hrh)
   
-
-# MUNGE -------------------------------------------------------------------
+  #Site Attributes data
+  df_attr <- datim_sqlviews(view_name = {sqlview_name},
+                            dataset = TRUE,
+                            query = list(type = "variable", params = list("OU" = cntry_iso)))
+  
+# MUNGE - MER -------------------------------------------------------------
 
   #aggregate to one observation by site and indicator
   df_sites <- df_msd %>%
@@ -121,12 +148,32 @@
                 names_glue = "{tolower(indicator)}",
                 values_from = cumulative)
 
+# MUNGE - SITE ATTRIBUTES -------------------------------------------------
+
   #clean attribute columns to make them easier to work with
   df_attr <- df_attr %>%
     clean_names() %>%
     select(orgunituid = datim_uid,
            facility_type:clinic_hours)%>%
     mutate(across(facility_type:clinic_hours,  \(x) na_if(x, "")))
+
+
+# MUNGE - HRH -------------------------------------------------------------
+  
+  #subset HRH data to FY23 in TDA
+  df_hrh <- df_hrh %>% 
+    filter(country == cntry,
+           fiscal_year == 2023)
+  
+  #aggregate HRH data by orgunit and cadre  
+  df_hrh <- df_hrh %>% 
+    group_by(fiscal_year, orgunituid, funding_agency, cadre) %>% 
+    summarise(across(c(annual_fte, individual_count), \(x) sum(x, na.rm = TRUE)),
+              .groups = "drop") %>% 
+    clean_agency()
+  
+
+# MERGE -------------------------------------------------------------------
 
   #join MER with site attributes
   df_full <- tidylog::left_join(df_sites_w, df_attr)
@@ -137,28 +184,18 @@
     relocate(sitetype, facility_type:clinic_hours, .after = orgunituid) %>% 
     mutate(ownership_type = ifelse(is.na(ownership_type), "Not Classified", ownership_type))
 
-  #subset HRH data to FY23 in TDA
-  df_hrh <- df_hrh %>% 
-    filter(country == cntry,
-           fiscal_year == 2023)
-
-  #aggregate HRH data by orgunit and cadre  
-  df_hrh <- df_hrh %>% 
-    group_by(fiscal_year, orgunituid, funding_agency, cadre) %>% 
-    summarise(across(c(annual_fte, individual_count), \(x) sum(x, na.rm = TRUE)),
-              .groups = "drop") %>% 
-    clean_agency()
-  
   #join with MER and attributes
   df_full_hrh <- tidylog::left_join(df_full, df_hrh)
   
 # EXPORT ------------------------------------------------------------------
 
+  #MER + SA (each site is a row)
   output_path <- glue("Dataout/TZA_TX_SA_{str_remove_all(Sys.Date(), '-')}.csv")
   
   df_full %>% 
     write_csv(output_path, na  = "")
 
+  #MER + SA + HRH (each site has multiples row due to HRH cadres)
   output_path_hrh <- glue("Dataout/TZA_TX_SA-HRH_{str_remove_all(Sys.Date(), '-')}.csv")
   
   df_full_hrh %>% 
@@ -167,22 +204,36 @@
 
 # UPLOAD TO GDRIVE --------------------------------------------------------
 
-  return_latest("Dataout", "TZA_TX_SA_") %>% 
-    drive_upload(output_path,
-                 as_id("1hqyy8aCwBZih0YQfI160WA9Hdrc3lBSl"),
-                 basename(output_path),
-                 type = "spreadsheet",
-                 overwrite = TRUE)
+  #browse data folder
+  # drive_browse(gd_data_folder)
   
-  return_latest("Dataout", "TZA_TX_SA-HRH_") %>% 
-  drive_upload(output_path_hrh,
-               as_id("1hqyy8aCwBZih0YQfI160WA9Hdrc3lBSl"),
-               basename(output_path),
-               type = "spreadsheet",
-               overwrite = TRUE)
+  if(is_local){
+    #store MER + SA
+    return_latest("Dataout", "TZA_TX_SA_") %>% 
+      drive_upload(gd_data_folder, basename(.), type = "spreadsheet", overwrite = TRUE)
+    
+    #store MER + SA + HRH
+    return_latest("Dataout", "TZA_TX_SA-HRH_") %>% 
+      drive_upload(gd_data_folder, basename(.), type = "spreadsheet", overwrite = TRUE)
+  }
+  
 
-# VIZ ---------------------------------------------------------------------
+# LOAD DATA FOR VIZ -------------------------------------------------------
+
+  if(!exists('df_full')){
+    df_full <- return_latest("Dataout", "TZA_TX_SA") %>% 
+      read_csv()
+  }
   
+  if(!exists('df_full_hrh')){
+  df_full_hrh <- return_latest("Dataout", "TZA_TX_SA-HRH") %>% 
+    read_csv()
+  }
+  
+
+
+# VIZ - Original ----------------------------------------------------------
+
  df_full %>% 
     count(funding_agency, ownership_type) %>% 
     mutate(ownership_type = fct_reorder(ownership_type, n, sum)) %>% 
@@ -289,12 +340,9 @@
   si_save("Images/FY24Q1_TZA_SA-tx.png")
   
   
-  
-# VIZ 2 -------------------------------------------------------------------
 
-  df_full <- return_latest("Dataout", "TZA_TX_SA") %>% 
-    read_csv()
-  
+# VIZ - MER ---------------------------------------------------------------
+
 ##site count x agency
   
   df_viz_agg <- df_full %>% 
@@ -330,11 +378,7 @@
                 n_rows = 20,
                 size = .1) +
     facet_wrap(~agency_label, ncol = 1) +
-    scale_fill_manual(values = c("Private" = orchid_bloom,
-                                 "Government: MOH" = si_palettes$slate_t[2], 
-                                 "Government: Other" = si_palettes$slate_t[3],
-                                 "NGO or Non-Profit" = si_palettes$slate_t[4], 
-                                 "Not Classified" = si_palettes$tango_t[4])) +
+    scale_fill_manual(values = fill_ownership) +
     # coord_equal(clip = "off") +
     coord_cartesian(clip = "off") +
     labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
@@ -355,11 +399,7 @@
                 n_rows = 20,
                 size = .1) +
     facet_wrap(~agency_label, ncol = 1) +
-    scale_fill_manual(values = c("Private" = orchid_bloom,
-                                 "Government: MOH" = si_palettes$slate_t[2], 
-                                 "Government: Other" = si_palettes$slate_t[3],
-                                 "NGO or Non-Profit" = si_palettes$slate_t[4], 
-                                 "Not Classified" = si_palettes$tango_t[4])) +
+    scale_fill_manual(values = fill_ownership) +
     # coord_equal(clip = "off") +
     coord_cartesian(clip = "off") +
     labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
@@ -403,7 +443,7 @@
               family = "Source Sans Pro", color = matterhorn) +
     facet_grid(type ~ fct_reorder(facility_type, value, sum) %>% fct_rev, switch = "y") +
     # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
-    scale_fill_manual(values = fill_types) +
+    scale_fill_manual(values = fill_facility) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL) +
     si_style_xgrid() +
@@ -423,7 +463,7 @@
               family = "Source Sans Pro", color = matterhorn) +
     facet_grid(type ~ fct_reorder(facility_type, value, sum) %>% fct_rev, switch = "y") +
     # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
-    scale_fill_manual(values = fill_types) +
+    scale_fill_manual(values = fill_facility) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL) +
     si_style_xgrid() +
@@ -451,7 +491,7 @@
               family = "Source Sans Pro", color = matterhorn) +
     facet_grid(type ~ fct_reorder(facility_type, type_order, sum) %>% fct_rev, switch = "y") +
     # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
-    scale_fill_manual(values = fill_types) +
+    scale_fill_manual(values = fill_facility) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL) +
     si_style_xgrid() +
@@ -471,7 +511,7 @@
               family = "Source Sans Pro", color = matterhorn) +
     facet_grid(type ~ fct_reorder(facility_type, type_order, sum) %>% fct_rev, switch = "y") +
     # scale_fill_si("orchid_bloom_c", discrete = TRUE) +
-    scale_fill_manual(values = fill_types) +
+    scale_fill_manual(values = fill_facility) +
     coord_cartesian(clip = "off") +
     labs(x = NULL, y = NULL) +
     si_style_xgrid() +
@@ -487,5 +527,51 @@
                     theme = si_style())
   
   si_save("Images/FY23Q4_TZA_SA_facility-hts.png")
+
+# VIZ - HRH ---------------------------------------------------------------
+
+  #check data completeness
+  df_hrh_completeness <- df_full_hrh %>% 
+    filter(sitetype == "Facility") %>% 
+    pivot_longer(c(tx_curr, hts_tst),
+                  names_to = "indicator",
+                 values_drop_na = TRUE) %>% 
+    mutate(indicator = toupper(indicator),
+           individual_count = ifelse(is.na(individual_count), 0, individual_count)) %>% 
+    group_by(indicator, ownership_type, funding_agency, orgunituid) %>% 
+    summarise(individual_count = max(individual_count),
+              .groups = "drop") %>% 
+    mutate(reported_hrh = individual_count != 0) %>% 
+    count(indicator, ownership_type, reported_hrh, name = "sites") %>% 
+    group_by(indicator, ownership_type) %>% 
+    mutate(total_sites = sum(sites),
+           share = sites / sum(sites),
+           lab_ownership = glue("**{ownership_type}**<br>{sites} out of {total_sites} missing")) %>% 
+    ungroup() %>% 
+    mutate(ind_label = case_match(indicator,
+                                  "TX_CURR" ~ "ART Facilities",
+                                  "HTS_TST" ~ "Testing Facilities")) %>% 
+    filter(reported_hrh == FALSE)
   
- 
+   
+  df_hrh_completeness %>% 
+      ggplot(aes(share, lab_ownership, fill = ownership_type)) +
+      geom_col() +
+      geom_text(aes(label = label_percent(1)(share)), 
+                hjust = -.2, family = "Source Sans Pro", color = matterhorn) +
+      # facet_grid(indicator ~ .)
+      facet_wrap(~ ind_label, scales = "free_y") +
+      scale_fill_manual(values = fill_ownership) +
+      coord_cartesian(clip = "off") +
+      labs(x = NULL, y = NULL,
+           title = "Nearly half the private facilities reporting ART or testing do not have HRH data reported in FY23" %>% toupper(),
+           subtitle = "Tanzania | FY23 | TX_CURR + HTS_TST | Private funding type only",
+           caption = glue("{str_replace(meta$caption, 'MSD', 'MSD + FY23 HRH')} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]")) +
+      si_style_nolines() +
+      theme(axis.text.y = element_markdown(),
+            axis.text.x = element_blank(),
+            strip.text = element_text(face = "bold"),
+            legend.position = "none")
+    
+    si_save("Images/FY23Q4_TZA_SA_hrh_completeness.png")
+    
