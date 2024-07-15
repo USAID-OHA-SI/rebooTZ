@@ -5,7 +5,7 @@
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
-# UPDATED:  2024-07-11
+# UPDATED:  2024-07-15
 
 
 # DEPENDENCIES ------------------------------------------------------------
@@ -38,6 +38,9 @@
   #focal fiscal year
   fy <- 2023
   
+  #reference for viz captions
+  ref_id <- "a487bcd2" 
+  
   #working locally (or PEPFAR Workbench)? (for filepaths)
   is_local <- !grepl("rstudio-server.*datim.org", as.list(Sys.info())$nodename)
   
@@ -69,9 +72,6 @@
   gd_data_folder <- as_id("1hqyy8aCwBZih0YQfI160WA9Hdrc3lBSl")
 
   ##VIZ
-  
-  #reference for viz captions
-  ref_id <- "a487bcd2" 
   
   #fill color by ownership type
   fill_ownership <- c(orchid_bloom, si_palettes$slate_t[2:4], si_palettes$tango_t[4])
@@ -384,7 +384,7 @@
                 size = .1) +
     facet_wrap(~agency_label, ncol = 1) +
     scale_fill_manual(values = fill_ownership) +
-    coord_equal(ratio = .5, clip = "off") +
+    coord_equal(ratio = .4, clip = "off") +
     # coord_cartesian(clip = "off") +
     labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
          subtitle = "Tanzania | FY23 | TX_CURR",
@@ -407,8 +407,8 @@
     scale_fill_manual(values = fill_ownership) +
     # coord_equal(clip = "off") +
     coord_cartesian(clip = "off") +
-    labs(title = "CDC has the largest share of private owernship type for treatment services" %>% toupper,
-         subtitle = "Tanzania | FY23 | TX_CURR",
+    labs(title = "CDC has the largest share of private owernship type for testing services" %>% toupper,
+         subtitle = "Tanzania | FY23 | HTS_TST",
          caption = glue("Note: Other ownership type categories include Government: MOH or Other and NGO/Non-Profit. Sites without ownership type are shaded orange 
                        Communities do not have ownership types and are excluded
                          {meta$caption} + DATIM Data Exchange: Org Unit Attributes [{Sys.Date()}]")) +
