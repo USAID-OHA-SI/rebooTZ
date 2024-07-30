@@ -5,7 +5,7 @@
 # REF ID:   a487bcd2 
 # LICENSE:  MIT
 # DATE:     2024-05-13
-# UPDATED:  2024-07-15
+# UPDATED:  2024-07-30
 
 
 # DEPENDENCIES ------------------------------------------------------------
@@ -117,6 +117,20 @@
     filter(country == cntry) %>%
     pull(country_iso)
 
+
+# DATIM COORDINATES -------------------------------------------------------
+
+  
+  df_coords <- pepfar_country_list %>% 
+    filter(operatingunit == "Tanzania") %>% 
+    pull(operatingunit_uid) %>% 
+    datim_pull_hierarchy(add_geom = TRUE)
+
+  df_coords %>% 
+    select(orgunituid, latitude, longitude) %>% 
+    filter(!is.na(latitude)) %>% 
+    write_csv("Dataout/SBU_TZA_coords_SBU.csv", na = "")
+    
  
 # IMPORT ------------------------------------------------------------------
   
