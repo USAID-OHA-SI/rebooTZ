@@ -59,21 +59,27 @@
   
   genie_path <- return_latest("Data", "Genie-PSNUByIMs-Tanzania-Daily")
   
+  genie_path_hts <- "Data/Genie-PSNUByIM-HTS-Tanzania-Daily-2024-08-07.zip"
+  
   meta <- get_metadata(genie_path)
 
 # IMPORT MER --------------------------------------------------------------
 
   #read genie
   df <- read_psd(genie_path)
+  
+  df_hts <- read_psd(genie_path_hts)
 
   #read msd
   df <- df %>%
+    bind_rows(df_hts) %>% 
     filter(operatingunit == "Tanzania",
            funding_agency == "USAID",
            fiscal_year >= 2021,
            indicator %in% c("TX_CURR","TX_ML_IIT_six_more_mo", "TX_ML_IIT_three_five_mo",
                             "TX_ML_IIT_less_three_mo", "TX_NET_NEW", "TX_NET_NEW_SHIFT",
-                            "TX_NEW", "TX_PVLS", "TX_RTT", "PMTCT_ART", "PMTCT_STAT_POS"))
+                            "TX_NEW", "TX_PVLS", "TX_RTT", "PMTCT_ART", "PMTCT_STAT_POS",
+                            "HTS_TST", "HTS_TST_POS"))
 
 
 # PERIODS -----------------------------------------------------------------
@@ -277,31 +283,229 @@
           path = "Images",
           scale = 1.5)
   
-# ACHIEVEMENT -------------------------------------------------------------
 
+  # GROWTH RATE TX_NEW ------------------------------------------------------
+  
+  df_gr_n <- df %>% 
+    filter(indicator == "TX_NEW",
+           standardizeddisaggregate == "Total Numerator",
+           snu1 %in% snu_sel) %>% 
+    group_by(fiscal_year, snu1, indicator) %>% 
+    summarise(across(c(targets, starts_with("qtr")), \(x) sum(x, na.rm = TRUE)), 
+              .groups = "drop") %>%
+    reshape_msd("quarters") %>% 
+    # select(-results_cumulative) %>% 
+    arrange(snu1, period)
+  
+  df_gr_n <- df_gr_n %>% 
+    mutate(targets_curr_fy = case_when(fiscal_year == meta$curr_fy ~ targets)) %>% 
+    group_by(snu1) %>% 
+    fill(targets_curr_fy, .direction = "updown") %>% 
+    ungroup() %>% 
+    filter(!is.na(targets_curr_fy))
+  
+  df_gr_n <- df_gr_n %>% 
+    mutate(growth_rate_req = case_when(period == meta$curr_pd ~ ((targets/results_cumulative)^(1/(4-meta$curr_qtr))) -1)) %>% 
+    group_by(snu1) %>% 
+    fill(growth_rate_req, .direction = "updown") %>% 
+    mutate(growth_rate = (results - lag(results, order_by = period))/lag(results, order_by = period)) %>% 
+    ungroup() %>% 
+    mutate(grr_lab = case_when(targets == 0 ~ glue("{toupper(snu1)}\nNo target set"),
+                               growth_rate_req < 0 ~ glue("{toupper(snu1)}\nTarget already achieved"), 
+                               growth_rate_req < .1 ~ glue("{toupper(snu1)}\n{percent(growth_rate_req, 1)}"),
+                               is.infinite(growth_rate_req) ~ glue("{toupper(snu1)}"),
+                               TRUE ~ glue("{toupper(snu1)}\n{percent(growth_rate_req, 1)}")),
+           gr_label_position = 0,
+           growth_rate = ifelse(is.infinite(growth_rate) | is.nan(growth_rate), NA_real_, growth_rate),
+           targets_plot = ifelse(targets == 0, NA, targets),
+           disp_targets = case_when(fiscal_year == meta$curr_fy ~ targets))
+  
+  df_gr_n %>%
+    ggplot(aes(period, results, fill = as.character(fiscal_year))) +
+    # geom_col(aes(y = disp_targets), na.rm = TRUE, fill = suva_grey, alpha = .3) +
+    geom_col(na.rm = TRUE) +
+    # geom_errorbar(aes(ymin = targets_plot, ymax = targets_plot), linetype = "dashed", width = .95, na.rm = TRUE) +
+    geom_text(data = df_gr_n %>% filter(fiscal_year == meta$curr_fy),
+              aes(label = percent(growth_rate, 1), y = gr_label_position),
+              family = "Source Sans Pro", color = trolley_grey_light, size = 9/.pt, 
+              vjust = -.5, na.rm = TRUE) +
+    facet_wrap(~ fct_reorder2(grr_lab, period, targets), scales = "free_y") +
+    scale_y_continuous(label = label_number(scale_cut = cut_short_scale())) +
+    scale_x_discrete(breaks = unique(df_gr_n$period)[grep("Q(2|4)", unique(df_gr_n$period))]) +
+    scale_fill_manual(values = c(scooter_light, scooter)) +
+    labs(x = NULL, y = NULL,
+         title = glue("What growth rate is needed to reach the {str_replace(meta$curr_fy, '20', 'FY')} new on treatment targets for USAID?") %>% toupper(),
+         subtitle = "Current on treatment by region and growth rate needed in Q4 to reach target",
+         caption = glue("Note: quarterly growth rate needed calculated as a compound annual growth rate
+                      {meta$caption}")) +
+    si_style_ygrid() +
+    theme(legend.position = "none",
+          panel.spacing = unit(.5, "picas"))
+  
+  
+  si_save(glue("{meta$curr_pd}_TZA_tx-new-growth_regional.png"),
+          path = "Images",
+          scale = 1.5)
+  
+  
+  
+  # GROWTH RATE TX_NEW - PEDS -----------------------------------------------
+  
+  
+  df_gr_n_peds <- df %>% 
+    filter(indicator == "TX_NEW",
+           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
+           snu1 %in% snu_sel,
+           trendscoarse %in% "<15") %>% 
+    group_by(fiscal_year, snu1, indicator) %>% 
+    summarise(across(c(targets, starts_with("qtr")), \(x) sum(x, na.rm = TRUE)), 
+              .groups = "drop") %>%
+    reshape_msd("quarters") %>% 
+    # select(-results_cumulative) %>%
+    arrange(snu1, period)
+  
+  df_gr_n_peds <- df_gr_n_peds %>% 
+    mutate(targets_curr_fy = case_when(fiscal_year == meta$curr_fy ~ targets)) %>% 
+    group_by(snu1) %>% 
+    fill(targets_curr_fy, .direction = "updown") %>% 
+    ungroup() %>% 
+    filter(!is.na(targets_curr_fy))
+  
+  df_gr_n_peds <- df_gr_n_peds %>% 
+    mutate(growth_rate_req = case_when(period == meta$curr_pd ~ ((targets/results_cumulative)^(1/(4-meta$curr_qtr))) -1)) %>% 
+    group_by(snu1) %>% 
+    fill(growth_rate_req, .direction = "updown") %>% 
+    mutate(growth_rate = (results - lag(results, order_by = period))/lag(results, order_by = period)) %>% 
+    ungroup() %>% 
+    mutate(grr_lab = case_when(targets == 0 ~ glue("{toupper(snu1)}\nNo target set"),
+                               growth_rate_req < 0 ~ glue("{toupper(snu1)}\nTarget already achieved"), 
+                               growth_rate_req < .1 ~ glue("{toupper(snu1)}\n{percent(growth_rate_req, 1)}"),
+                               is.infinite(growth_rate_req) ~ glue("{toupper(snu1)}"),
+                               TRUE ~ glue("{toupper(snu1)}\n{percent(growth_rate_req, 1)}")),
+           gr_label_position = 0,
+           growth_rate = ifelse(is.infinite(growth_rate) | is.nan(growth_rate), NA_real_, growth_rate),
+           targets_plot = ifelse(targets == 0, NA, targets),
+           disp_targets = case_when(fiscal_year == meta$curr_fy ~ targets))
+  
+  df_gr_n_peds %>%
+    ggplot(aes(period, results, fill = as.character(fiscal_year))) +
+    # geom_col(aes(y = disp_targets), na.rm = TRUE, fill = suva_grey, alpha = .3) +
+    geom_col(na.rm = TRUE) +
+    # geom_errorbar(aes(ymin = targets_plot, ymax = targets_plot), linetype = "dashed", width = .95, na.rm = TRUE) +
+    geom_text(data = df_gr_n_peds %>% filter(fiscal_year == meta$curr_fy),
+              aes(label = percent(growth_rate, 1), y = gr_label_position),
+              family = "Source Sans Pro", color = matterhorn, size = 9/.pt, 
+              vjust = -.5, na.rm = TRUE) +
+    facet_wrap(~ fct_reorder2(grr_lab, period, targets), scales = "free_y") +
+    scale_y_continuous(label = label_number(scale_cut = cut_short_scale())) +
+    scale_x_discrete(breaks = unique(df_gr_n_peds$period)[grep("Q(2|4)", unique(df_gr_n_peds$period))]) +
+    scale_fill_manual(values = c(golden_sand_light, golden_sand)) +
+    labs(x = NULL, y = NULL,
+         title = glue("What growth rate is needed to reach the {str_replace(meta$curr_fy, '20', 'FY')} new on treatment targets for USAID?") %>% toupper(),
+         subtitle = "Current on treatment by region and growth rate needed in Q4 to reach target",
+         caption = glue("Note: quarterly growth rate needed calculated as a compound annual growth rate
+                      {meta$caption}")) +
+    si_style_ygrid() +
+    theme(legend.position = "none",
+          panel.spacing = unit(.5, "picas"))
+  
+  
+  si_save(glue("{meta$curr_pd}_TZA-peds_tx-new-growth_regional.png"),
+          path = "Images",
+          scale = 1.5)
+  
+  # GROWTH RATE TX_NEW - USAID ----------------------------------------------
+  
+  df_gr_n_usaid <- df %>% 
+    filter(indicator == "TX_NEW",
+           standardizeddisaggregate == "Total Numerator") %>% 
+    group_by(fiscal_year, funding_agency, indicator) %>% 
+    summarise(across(c(targets, starts_with("qtr")), \(x) sum(x, na.rm = TRUE)), 
+              .groups = "drop") %>%
+    reshape_msd("quarters") %>% 
+    # select(-results_cumulative) %>% 
+    arrange(funding_agency, period)
+  
+  df_gr_n_usaid <- df_gr_n_usaid %>% 
+    mutate(targets_curr_fy = case_when(fiscal_year == meta$curr_fy ~ targets)) %>% 
+    group_by(funding_agency) %>% 
+    fill(targets_curr_fy, .direction = "updown") %>% 
+    ungroup() %>% 
+    filter(!is.na(targets_curr_fy))
+  
+  df_gr_n_usaid <- df_gr_n_usaid %>% 
+    mutate(growth_rate_req = case_when(period == meta$curr_pd ~ ((targets/results_cumulative)^(1/(4-meta$curr_qtr))) -1)) %>% 
+    group_by(funding_agency) %>% 
+    fill(growth_rate_req, .direction = "updown") %>% 
+    mutate(growth_rate = (results - lag(results, order_by = period))/lag(results, order_by = period)) %>% 
+    ungroup() %>% 
+    mutate(grr_lab = case_when(targets == 0 ~ glue("{toupper(funding_agency)}\nNo target set"),
+                               growth_rate_req < 0 ~ glue("{toupper(funding_agency)}\nTarget already achieved"), 
+                               growth_rate_req < .1 ~ glue("{toupper(funding_agency)}\n{percent(growth_rate_req, 1)}"),
+                               is.infinite(growth_rate_req) ~ glue("{toupper(funding_agency)}"),
+                               TRUE ~ glue("{toupper(funding_agency)}\n{percent(growth_rate_req, 1)}")),
+           gr_label_position = 0,
+           growth_rate = ifelse(is.infinite(growth_rate) | is.nan(growth_rate), NA_real_, growth_rate),
+           targets_plot = ifelse(targets == 0, NA, targets),
+           disp_targets = case_when(fiscal_year == meta$curr_fy ~ targets))
+  
+  df_gr_n_usaid %>%
+    ggplot(aes(period, results, fill = as.character(fiscal_year))) +
+    # geom_col(aes(y = disp_targets), na.rm = TRUE, fill = suva_grey, alpha = .3) +
+    geom_col(na.rm = TRUE) +
+    # geom_errorbar(aes(ymin = targets_plot, ymax = targets_plot), linetype = "dashed", width = .95, na.rm = TRUE) +
+    geom_text(data = df_gr_n_usaid %>% filter(fiscal_year == meta$curr_fy),
+              aes(label = percent(growth_rate, 1), y = gr_label_position),
+              family = "Source Sans Pro", color = trolley_grey_light, size = 9/.pt, 
+              vjust = -.5, na.rm = TRUE) +
+    facet_wrap(~ fct_reorder2(grr_lab, period, targets), scales = "free_y") +
+    scale_y_continuous(label = label_number(scale_cut = cut_short_scale())) +
+    scale_x_discrete(breaks = unique(df_gr_n_usaid$period)[grep("Q(2|4)", unique(df_gr_n_usaid$period))]) +
+    scale_fill_manual(values = c(moody_blue_light, moody_blue)) +
+    labs(x = NULL, y = NULL,
+         title = glue("What growth rate is needed to reach the {str_replace(meta$curr_fy, '20', 'FY')} new on treatment targets for USAID?") %>% toupper(),
+         subtitle = "Current on treatment by region and growth rate needed in Q4 to reach target",
+         caption = glue("Note: quarterly growth rate needed calculated as a compound annual growth rate
+                      {meta$caption}")) +
+    si_style_ygrid() +
+    theme(legend.position = "none",
+          panel.spacing = unit(.5, "picas"))
+  
+  
+  si_save(glue("{meta$curr_pd}_TZA_tx-new-growth_regional_usaid.png"),
+          path = "Images",
+          scale = 1.5)
+  
+  
+  # ACHIEVEMENT -------------------------------------------------------------
+  
+  cas_ind <- c("HTS_TST", "HTS_TST_POS", "TX_NEW", "TX_CURR", "TX_PVLS_D", "TX_PVLS")
   #aggregate to regional level
   df_achv <- df %>%
-    filter(indicator %in% c("TX_CURR", "TX_NEW"),
+    filter(indicator %in% cas_ind,
            fiscal_year == meta$curr_fy,
-           snu1 %in% snu_sel) %>% 
+           snu1 %in% snu_sel) %>%
     pluck_totals() %>% 
+    clean_indicator() %>% 
     group_by(fiscal_year, snu1, indicator) %>% 
     summarize(across(c(targets, cumulative),\(x) sum(x, na.rm = TRUE)), 
-              .groups = "drop") 
+              .groups = "drop") %>% 
+    mutate(indicator = factor(indicator, cas_ind),
+           order = ifelse(indicator == "TX_CURR", targets, 0))
   
   #calculate achievement
   df_achv <- df_achv %>% 
     adorn_achievement(meta$curr_qtr)
   
   
-  df_achv_lab <- df_achv %>%
-    select(snu1, indicator, targets) %>% 
-    pivot_wider(names_from = indicator,
-                names_glue = "{tolower(indicator)}",
-                values_from = targets) %>%
-    mutate(snu1_lab = glue("{format(snu1, justify = 'right')}  {format(comma(tx_curr), justify = 'right')} | {format(comma(tx_new), justify = 'right')}")) %>% 
-    select(snu1, snu1_lab, tx_curr)
-
+  # df_achv_lab <- df_achv %>%
+  #   select(snu1, indicator, targets) %>% 
+  #   pivot_wider(names_from = indicator,
+  #               names_glue = "{tolower(indicator)}",
+  #               values_from = targets) %>%
+  #   mutate(snu1_lab = glue("{format(snu1, justify = 'right')}  {format(comma(tx_curr), justify = 'right')} | {format(comma(tx_new), justify = 'right')}")) %>% 
+  #   select(snu1, snu1_lab, tx_curr)
+  
   #viz adjustments
   df_achv_viz <- df_achv %>%
     mutate(snu1_achv = achievement,
@@ -310,9 +514,10 @@
            baseline_pt_3 = .5,
            baseline_pt_4 = .75,
            baseline_pt_5 = 1) %>% 
-    left_join(df_achv_lab, by = 'snu1') %>% 
-    mutate(snu1_lab = fct_reorder(snu1_lab, tx_curr, max, na.rm = TRUE, .desc = TRUE))
-    
+    mutate(snu1_lab = fct_reorder(snu1, order, .fun = sum, .desc = TRUE))
+  # left_join(df_achv_lab, by = 'snu1') %>% 
+  # mutate(snu1_lab = fct_reorder(snu1_lab, tx_curr, max, na.rm = TRUE, .desc = TRUE))
+  
   df_achv_viz %>% 
     ggplot(aes(achievement, snu1_lab, color = achv_color)) +
     geom_blank() +
@@ -337,7 +542,7 @@
                         {meta$caption}")) +
     si_style_nolines() +
     theme(axis.text.x = element_blank(),
-          axis.text.y = element_text(family = "Consolas"),
+          # axis.text.y = element_text(family = "Consolas"),
           strip.text.y = element_blank(),
           plot.subtitle = element_markdown(),
           strip.text = element_markdown(),
@@ -347,32 +552,37 @@
   si_save(glue("{meta$curr_pd}_TZA_tx-achv_regional.png"),
           path = "Images")
   
-
-# ACHIEVEMENT - PEDS ------------------------------------------------------
-
+  
+  
+  # ACHIEVEMENT PEDS -------------------------------------------------------------
+  
   #aggregate to regional level
   df_achv_peds <- df %>%
-    filter(indicator %in% c("TX_CURR", "TX_NEW"),
-           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/CD4/HIVStatus"),
+    filter(indicator %in% cas_ind,
+           fiscal_year == meta$curr_fy,
            snu1 %in% snu_sel,
            trendscoarse %in% "<15",
-           fiscal_year == meta$curr_fy) %>% 
-    group_by(fiscal_year, snu1, psnu, indicator) %>% 
-    summarize(across(c(targets, cumulative), \(x) sum(x, na.rm = TRUE)), 
-              .groups = "drop")
+           use_for_age == "Y"
+    ) %>%
+    clean_indicator() %>% 
+    group_by(fiscal_year, snu1, indicator) %>% 
+    summarize(across(c(targets, cumulative),\(x) sum(x, na.rm = TRUE)), 
+              .groups = "drop") %>% 
+    mutate(indicator = factor(indicator, cas_ind),
+           order = ifelse(indicator == "TX_CURR", targets, 0))
   
   #calculate achievement
   df_achv_peds <- df_achv_peds %>% 
     adorn_achievement(meta$curr_qtr)
   
   
-  df_achv_peds_lab <- df_achv_peds %>%
-    select(snu1, indicator, targets) %>% 
-    pivot_wider(names_from = indicator,
-                names_glue = "{tolower(indicator)}",
-                values_from = targets) %>%
-    mutate(snu1_lab = glue("{format(snu1, justify = 'right')}  {format(comma(tx_curr), justify = 'right')} | {format(comma(tx_new), justify = 'right')}")) %>% 
-    select(snu1, snu1_lab, tx_curr)
+  # df_achv_lab <- df_achv %>%
+  #   select(snu1, indicator, targets) %>% 
+  #   pivot_wider(names_from = indicator,
+  #               names_glue = "{tolower(indicator)}",
+  #               values_from = targets) %>%
+  #   mutate(snu1_lab = glue("{format(snu1, justify = 'right')}  {format(comma(tx_curr), justify = 'right')} | {format(comma(tx_new), justify = 'right')}")) %>% 
+  #   select(snu1, snu1_lab, tx_curr)
   
   #viz adjustments
   df_achv_peds_viz <- df_achv_peds %>%
@@ -382,8 +592,9 @@
            baseline_pt_3 = .5,
            baseline_pt_4 = .75,
            baseline_pt_5 = 1) %>% 
-    left_join(df_achv_peds_lab, by = 'snu1') %>% 
-    mutate(snu1_lab = fct_reorder(snu1_lab, tx_curr, max, na.rm = TRUE, .desc = TRUE))
+    mutate(snu1_lab = fct_reorder(snu1, order, .fun = sum, .desc = TRUE))
+  # left_join(df_achv_lab, by = 'snu1') %>% 
+  # mutate(snu1_lab = fct_reorder(snu1_lab, tx_curr, max, na.rm = TRUE, .desc = TRUE))
   
   df_achv_peds_viz %>% 
     ggplot(aes(achievement, snu1_lab, color = achv_color)) +
@@ -406,10 +617,10 @@
          subtitle = glue("Regional target achievement<br>
                          <span style = 'font-size:11pt;color:{color_caption};'>Goal for {percent(.25*meta$curr_qtr)} at Q{meta$curr_qtr} (snapshot indicators pegged to year end target 100%)</span>"),
          caption = glue("Note: Target achievement capped at 110%
-                         {meta$caption}")) +
+                        {meta$caption}")) +
     si_style_nolines() +
     theme(axis.text.x = element_blank(),
-          axis.text.y = element_text(family = "Consolas"),
+          # axis.text.y = element_text(family = "Consolas"),
           strip.text.y = element_blank(),
           plot.subtitle = element_markdown(),
           strip.text = element_markdown(),
@@ -417,7 +628,7 @@
   
   
   si_save(glue("{meta$curr_pd}_TZA-peds_tx-achv_regional.png"),
-          path = "Images")  
+          path = "Images") 
 
 # NEW V NET_NEW -----------------------------------------------------------
 
